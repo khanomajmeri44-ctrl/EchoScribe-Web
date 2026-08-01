@@ -152,13 +152,44 @@ button {
 }
 
 .model-pill {
-  min-width: 160px;
+  min-width: 248px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 9px;
   opacity: 1;
+  cursor: pointer;
+  padding: 0 11px;
+}
+
+.model-pill select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.model-pill select:disabled {
   cursor: default;
+  opacity: 0.55;
+}
+
+.model-pill option,
+.model-pill optgroup {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.model-state {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .model-dot {
@@ -661,7 +692,11 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .model-pill {
-    min-width: 140px;
+    min-width: 190px;
+  }
+
+  .model-state {
+    display: none;
   }
 
   .workspace {
@@ -729,7 +764,8 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .model-pill {
-    min-width: 118px;
+    min-width: 142px;
+    max-width: 180px;
   }
 
   .workspace {

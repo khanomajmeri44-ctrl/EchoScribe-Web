@@ -6,7 +6,7 @@ export type TranscriptEntry = {
 
 export type TranscriptCache = {
   key: string;
-  model: "tiny.en";
+  model: string;
   complete: boolean;
   processedUntil: number;
   entries: TranscriptEntry[];
@@ -29,15 +29,15 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export function transcriptKey(file: File): string {
-  return `${file.name}:${file.size}:${file.lastModified}:tiny.en`;
+export function transcriptKey(file: File, model: string): string {
+  return `${file.name}:${file.size}:${file.lastModified}:${model}`;
 }
 
-export async function readTranscript(file: File): Promise<TranscriptCache | null> {
+export async function readTranscript(file: File, model: string): Promise<TranscriptCache | null> {
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE, "readonly");
-    const request = transaction.objectStore(STORE).get(transcriptKey(file));
+    const request = transaction.objectStore(STORE).get(transcriptKey(file, model));
     request.onsuccess = () => resolve((request.result as TranscriptCache | undefined) ?? null);
     request.onerror = () => reject(request.error);
     transaction.oncomplete = () => database.close();
@@ -49,13 +49,14 @@ export async function writeTranscript(
   entries: TranscriptEntry[],
   processedUntil: number,
   complete: boolean,
+  model: string,
 ): Promise<void> {
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE, "readwrite");
     transaction.objectStore(STORE).put({
-      key: transcriptKey(file),
-      model: "tiny.en",
+      key: transcriptKey(file, model),
+      model,
       complete,
       processedUntil,
       entries,
@@ -69,11 +70,11 @@ export async function writeTranscript(
   });
 }
 
-export async function deleteTranscript(file: File): Promise<void> {
+export async function deleteTranscript(file: File, model: string): Promise<void> {
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE, "readwrite");
-    transaction.objectStore(STORE).delete(transcriptKey(file));
+    transaction.objectStore(STORE).delete(transcriptKey(file, model));
     transaction.oncomplete = () => {
       database.close();
       resolve();

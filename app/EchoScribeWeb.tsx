@@ -7,6 +7,7 @@ import {
   TranscriptEntry,
   writeTranscript,
 } from "@/lib/transcript-cache";
+import { DEFAULT_MODEL_ID, MODEL_OPTIONS, getModelOption, isModelId, type ModelId } from "@/lib/models";
 
 type WorkerEvent = {
   type: string;
@@ -16,6 +17,7 @@ type WorkerEvent = {
   progress?: number;
   processedUntil?: number;
   entries?: TranscriptEntry[];
+  modelId?: ModelId;
 };
 
 const WAVEFORM = [
@@ -82,6 +84,7 @@ export default function EchoScribeWeb() {
   const [status, setStatus] = useState("Open an audio file to begin");
   const [modelProgress, setModelProgress] = useState(0);
   const [modelReady, setModelReady] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<ModelId>(DEFAULT_MODEL_ID);
   const [backend, setBackend] = useState("Detecting");
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -101,6 +104,8 @@ export default function EchoScribeWeb() {
   const entriesRef = useRef<TranscriptEntry[]>([]);
   const resolveJobRef = useRef<((success: boolean) => void) | null>(null);
   const modelProgressRef = useRef(0);
+  const selectedModelRef = useRef<ModelId>(DEFAULT_MODEL_ID);
+  const workerModelRef = useRef<ModelId | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const replaceEntries = (value: TranscriptEntry[]) => {
@@ -114,41 +119,50 @@ export default function EchoScribeWeb() {
     toastTimerRef.current = setTimeout(() => setToast(""), 2600);
   };
 
-  const createWorker = () => {
+  const createWorker = (modelId: ModelId = selectedModelRef.current) => {
     const worker = new Worker(new URL("../workers/transcriber.worker.ts", import.meta.url), {
       type: "module",
     });
     worker.onmessage = (event) => workerHandlerRef.current(event);
-    worker.postMessage({ type: "load" });
+    worker.postMessage({ type: "load", modelId });
     workerRef.current = worker;
+    workerModelRef.current = modelId;
     return worker;
   };
 
-  const ensureWorker = () => workerRef.current ?? createWorker();
+  const ensureWorker = (modelId: ModelId = selectedModelRef.current) => {
+    if (workerRef.current && workerModelRef.current === modelId) return workerRef.current;
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    return createWorker(modelId);
+  };
 
-  const stopCurrentJob = (reloadModel = true) => {
+  const stopCurrentJob = (reloadModel = true, modelId: ModelId = selectedModelRef.current) => {
     activeJobRef.current = "";
     resolveJobRef.current?.(false);
     resolveJobRef.current = null;
     workerRef.current?.terminate();
     workerRef.current = null;
+    workerModelRef.current = null;
     setProcessing(false);
     if (reloadModel) {
       setModelReady(false);
       modelProgressRef.current = 0;
       setModelProgress(0);
-      createWorker();
+      createWorker(modelId);
     }
   };
 
   workerHandlerRef.current = (event) => {
     const message = event.data;
+    if (message.modelId && message.modelId !== selectedModelRef.current) return;
+    const activeModel = getModelOption(selectedModelRef.current);
     if (message.type === "model-progress") {
       const next = Math.max(modelProgressRef.current, message.progress ?? 0);
       modelProgressRef.current = next;
       setModelProgress(next);
       if (!modelReady && !activeFileRef.current) {
-        setStatus(next >= 1 ? "Initializing transcription engine…" : `Caching tiny.en model · ${Math.round(next * 100)}%`);
+        setStatus(next >= 1 ? "Initializing transcription engine…" : `Caching ${activeModel.shortLabel} · ${Math.round(next * 100)}%`);
       }
       return;
     }
@@ -161,7 +175,7 @@ export default function EchoScribeWeb() {
       setModelProgress(1);
       setModelReady(true);
       setBackend(message.backend ?? "WASM");
-      if (!activeFileRef.current) setStatus(`tiny.en ready · ${message.backend ?? "WASM"}`);
+      if (!activeFileRef.current) setStatus(`${activeModel.shortLabel} ready · ${message.backend ?? "WASM"}`);
       return;
     }
     if (message.type === "model-fallback") {
@@ -176,7 +190,7 @@ export default function EchoScribeWeb() {
     }
     if (!message.jobId || message.jobId !== activeJobRef.current) return;
     if (message.type === "job-accepted") {
-      setStatus(modelReady ? "Starting English transcription…" : "Audio ready · waiting for model initialization…");
+      setStatus(modelReady ? `Starting ${activeModel.label} transcription…` : "Audio ready · waiting for model initialization…");
       return;
     }
     if (message.type === "job-started") {
@@ -188,21 +202,21 @@ export default function EchoScribeWeb() {
       const merged = mergeEntries(entriesRef.current, message.entries ?? []);
       replaceEntries(merged);
       setProgress(message.progress ?? 0);
-      setStatus(`Transcribing live · tiny.en · ${merged.length} sentences ready`);
+      setStatus(`Transcribing live · ${activeModel.shortLabel} · ${merged.length} passages ready`);
       const currentFile = activeFileRef.current;
       if (currentFile) {
-        void writeTranscript(currentFile, merged, message.processedUntil ?? 0, false);
+        void writeTranscript(currentFile, merged, message.processedUntil ?? 0, false, activeModel.id);
       }
       return;
     }
     if (message.type === "complete") {
       const currentFile = activeFileRef.current;
       if (currentFile) {
-        void writeTranscript(currentFile, entriesRef.current, message.processedUntil ?? duration, true);
+        void writeTranscript(currentFile, entriesRef.current, message.processedUntil ?? duration, true, activeModel.id);
       }
       setProgress(1);
       setProcessing(false);
-      setStatus(`English transcript ready · ${entriesRef.current.length} sentences`);
+      setStatus(`${activeModel.language === "ja" ? "Japanese" : "English"} transcript ready · ${entriesRef.current.length} passages`);
       showToast("Transcript ready and cached on this device");
       resolveJobRef.current?.(true);
       resolveJobRef.current = null;
@@ -220,9 +234,13 @@ export default function EchoScribeWeb() {
   useEffect(() => {
     const savedTheme = localStorage.getItem("echoscribe-theme");
     setDark(savedTheme === "dark");
+    const savedModel = localStorage.getItem("echoscribe-model");
+    const initialModel = isModelId(savedModel) ? savedModel : DEFAULT_MODEL_ID;
+    selectedModelRef.current = initialModel;
+    setSelectedModelId(initialModel);
     if ("serviceWorker" in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
     if (navigator.storage?.persist) void navigator.storage.persist();
-    createWorker();
+    createWorker(initialModel);
     return () => {
       workerRef.current?.terminate();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -233,21 +251,22 @@ export default function EchoScribeWeb() {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  const beginTranscription = async (selectedFile: File, resumeAt: number): Promise<boolean> => {
+  const beginTranscription = async (selectedFile: File, resumeAt: number, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
+    const model = getModelOption(modelId);
     setProcessing(true);
     setProgress(duration ? Math.min(resumeAt / duration, 0.98) : 0.01);
-    setStatus(resumeAt ? `Resuming from ${formatTime(resumeAt)} · tiny.en` : "Preparing local audio…");
+    setStatus(resumeAt ? `Resuming from ${formatTime(resumeAt)} · ${model.shortLabel}` : "Preparing local audio…");
     try {
       const samples = await decodeAudio(selectedFile);
       const jobId = crypto.randomUUID();
       activeJobRef.current = jobId;
       activeFileRef.current = selectedFile;
-      const worker = ensureWorker();
+      const worker = ensureWorker(modelId);
       return await new Promise<boolean>((resolve) => {
         resolveJobRef.current = resolve;
-        setStatus(modelReady ? "Starting English transcription…" : "Audio decoded · waiting for model initialization…");
+        setStatus(modelReady && workerModelRef.current === modelId ? `Starting ${model.label} transcription…` : "Audio decoded · waiting for model initialization…");
         worker.postMessage(
-          { type: "transcribe", jobId, audio: samples, resumeAt },
+          { type: "transcribe", jobId, audio: samples, resumeAt, modelId },
           [samples.buffer],
         );
       });
@@ -259,7 +278,7 @@ export default function EchoScribeWeb() {
     }
   };
 
-  const openAudio = async (selectedFile: File, batchMode = false): Promise<boolean> => {
+  const openAudio = async (selectedFile: File, batchMode = false, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
     if (!selectedFile.type.startsWith("audio/") && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm)$/i.test(selectedFile.name)) {
       showToast("Choose a supported audio file");
       return false;
@@ -273,22 +292,22 @@ export default function EchoScribeWeb() {
     setPosition(0);
     setDuration(0);
     setSearch("");
-    const cached = await readTranscript(selectedFile);
+    const cached = await readTranscript(selectedFile, modelId);
     if (cached) {
       replaceEntries(cached.entries);
       if (cached.complete) {
         setProgress(1);
-        setStatus(`Loaded cached transcript · ${cached.entries.length} sentences`);
+        setStatus(`Loaded cached transcript · ${cached.entries.length} passages`);
         if (!batchMode) showToast("Cached transcript loaded instantly");
         return true;
       }
-      const resumeAt = cached.entries.at(-1)?.end ?? 0;
-      setStatus(`Loaded ${cached.entries.length} saved sentences · resuming`);
-      return beginTranscription(selectedFile, resumeAt);
+      const resumeAt = Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0);
+      setStatus(`Loaded ${cached.entries.length} saved passages · resuming`);
+      return beginTranscription(selectedFile, resumeAt, modelId);
     }
     replaceEntries([]);
     setProgress(0);
-    return beginTranscription(selectedFile, 0);
+    return beginTranscription(selectedFile, 0, modelId);
   };
 
   const handleAudioInput = (event: ChangeEvent<HTMLInputElement>) => {
@@ -315,12 +334,42 @@ export default function EchoScribeWeb() {
 
   const regenerate = async () => {
     if (!file) return;
-    stopCurrentJob();
-    await deleteTranscript(file);
+    const modelId = selectedModelRef.current;
+    stopCurrentJob(true, modelId);
+    await deleteTranscript(file, modelId);
     replaceEntries([]);
     setProgress(0);
-    showToast("Regenerating subtitles with tiny.en");
-    void beginTranscription(file, 0);
+    showToast(`Regenerating with ${getModelOption(modelId).label}`);
+    void beginTranscription(file, 0, modelId);
+  };
+
+  const handleModelChange = async (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextModelId = event.target.value as ModelId;
+    if (!isModelId(nextModelId) || nextModelId === selectedModelRef.current) return;
+    stopCurrentJob(false);
+    selectedModelRef.current = nextModelId;
+    setSelectedModelId(nextModelId);
+    localStorage.setItem("echoscribe-model", nextModelId);
+    setModelReady(false);
+    modelProgressRef.current = 0;
+    setModelProgress(0);
+    setBackend("Detecting");
+    createWorker(nextModelId);
+    const model = getModelOption(nextModelId);
+    setStatus(`Loading ${model.label}…`);
+    if (!file) return;
+    const cached = await readTranscript(file, nextModelId);
+    replaceEntries(cached?.entries ?? []);
+    if (cached?.complete) {
+      setProgress(1);
+      setStatus(`Loaded cached ${model.label} transcript · ${cached.entries.length} passages`);
+      showToast("Saved model choice and loaded its cached transcript");
+      return;
+    }
+    setProgress(0);
+    const resumeAt = cached ? Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0) : 0;
+    showToast(`Saved model choice · ${model.label}`);
+    void beginTranscription(file, resumeAt, nextModelId);
   };
 
   const toggleTheme = () => {
@@ -395,10 +444,9 @@ export default function EchoScribeWeb() {
     if (selected) void openAudio(selected);
   };
 
-  const fileKind = file ? `${file.name.split(".").at(-1)?.toUpperCase() ?? "AUDIO"} AUDIO` : "ENGLISH AUDIO WORKSPACE";
-  const modelLabel = modelReady
-    ? `tiny.en · ${backend}`
-    : `Model ${Math.round(modelProgress * 100)}%`;
+  const selectedModel = getModelOption(selectedModelId);
+  const fileKind = file ? `${file.name.split(".").at(-1)?.toUpperCase() ?? "AUDIO"} AUDIO` : `${selectedModel.language === "ja" ? "JAPANESE" : "ENGLISH"} AUDIO WORKSPACE`;
+  const modelStateLabel = modelReady ? backend : `${Math.round(modelProgress * 100)}%`;
 
   return (
     <div className={dark ? "app dark" : "app"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
@@ -414,9 +462,22 @@ export default function EchoScribeWeb() {
           </button>
           <button className="quiet" onClick={toggleTheme}>{dark ? "Light" : "Dark"}</button>
           <button className="quiet" disabled={!file || batchProcessing} onClick={() => void regenerate()}>Regenerate</button>
-          <button className="model-pill" aria-label="Lightweight transcription model" disabled>
-            <span>{modelLabel}</span><span className="model-dot" />
-          </button>
+          <label className="model-pill">
+            <select aria-label="Transcription model" value={selectedModelId} disabled={batchProcessing} onChange={(event) => void handleModelChange(event)}>
+              <optgroup label="English models">
+                {MODEL_OPTIONS.filter((model) => model.language === "en").map((model) => (
+                  <option key={model.id} value={model.id}>{model.label} — {model.tier}</option>
+                ))}
+              </optgroup>
+              <optgroup label="日本語モデル">
+                {MODEL_OPTIONS.filter((model) => model.language === "ja").map((model) => (
+                  <option key={model.id} value={model.id}>{model.label} — {model.tier}</option>
+                ))}
+              </optgroup>
+            </select>
+            <span className="model-state">{modelStateLabel}</span>
+            <span className="model-dot" />
+          </label>
           <button className="solid" onClick={() => inputRef.current?.click()}>Open audio</button>
         </div>
         <input ref={inputRef} className="hidden-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm" onChange={handleAudioInput} />
@@ -427,7 +488,7 @@ export default function EchoScribeWeb() {
         <section className="player-card">
           <div className="file-heading">
             <div className="eyebrow">{fileKind}</div>
-            <h1>{file?.name ?? "Open an English audio file"}</h1>
+            <h1>{file?.name ?? `Open a${selectedModel.language === "en" ? "n English" : " Japanese"} audio file`}</h1>
             <p>{status}</p>
           </div>
 
@@ -483,7 +544,7 @@ export default function EchoScribeWeb() {
 
           <div className="local-note">
             <div><span className="shield">✓</span><strong>Private by design</strong></div>
-            <p>Your audio never leaves this device. The tiny.en model is cached by this browser.</p>
+            <p>Your audio never leaves this device. The selected model and transcript are cached by this browser.</p>
           </div>
         </section>
 
@@ -504,7 +565,7 @@ export default function EchoScribeWeb() {
             {!filteredEntries.length && (
               <div className="empty-state">
                 <div className="empty-mark">Aa</div>
-                <h3>{processing ? "Listening for English speech…" : "Your transcript will appear here"}</h3>
+                <h3>{processing ? `Listening for ${selectedModel.language === "ja" ? "Japanese" : "English"} speech…` : "Your transcript will appear here"}</h3>
                 <p>{modelReady ? "Open or drop an audio file to begin local transcription." : "The lightweight model is being cached for first use."}</p>
               </div>
             )}

@@ -1,4 +1,5 @@
 import { env, pipeline } from "@huggingface/transformers";
+import { DEFAULT_MODEL_ID, getModelOption, type ModelId } from "../lib/models";
 
 type WordChunk = {
   text: string;
@@ -16,12 +17,11 @@ type PipelineOutput = {
   chunks?: WordChunk[];
 };
 
-const WEBGPU_MODEL = "onnx-community/whisper-tiny.en";
-const WASM_MODEL = "onnx-community/whisper-tiny.en";
 const SAMPLE_RATE = 16000;
 const CHUNK_SECONDS = 28;
 let transcriberPromise: Promise<any> | null = null;
 let backend = "WASM";
+let activeModelId: ModelId = DEFAULT_MODEL_ID;
 
 env.useBrowserCache = true;
 env.allowRemoteModels = true;
@@ -37,8 +37,9 @@ function send(message: Record<string, unknown>) {
 }
 
 async function createWasmPipeline() {
-  send({ type: "model-runtime", backend: "WASM" });
-  const transcriber = await pipeline("automatic-speech-recognition", WASM_MODEL, {
+  const model = getModelOption(activeModelId);
+  send({ type: "model-runtime", backend: "WASM", modelId: activeModelId });
+  const transcriber = await pipeline("automatic-speech-recognition", model.repo, {
     device: "wasm",
     dtype: { encoder_model: "q4", decoder_model_merged: "q4" },
     progress_callback: reportModelProgress,
@@ -48,10 +49,11 @@ async function createWasmPipeline() {
 }
 
 async function createPipeline() {
+  const model = getModelOption(activeModelId);
   const hasWebGpu = "gpu" in navigator;
   if (hasWebGpu) {
     try {
-      const transcriber = await pipeline("automatic-speech-recognition", WEBGPU_MODEL, {
+      const transcriber = await pipeline("automatic-speech-recognition", model.repo, {
         device: "webgpu",
         dtype: { encoder_model: "q4", decoder_model_merged: "q4" },
         progress_callback: reportModelProgress,
@@ -59,7 +61,7 @@ async function createPipeline() {
       backend = "WebGPU";
       return transcriber;
     } catch {
-      send({ type: "model-fallback", message: "WebGPU unavailable · switching to CPU" });
+      send({ type: "model-fallback", message: "WebGPU unavailable · switching to CPU", modelId: activeModelId });
     }
   }
   return createWasmPipeline();
@@ -69,6 +71,7 @@ function reportModelProgress(event: any) {
   const progress = typeof event?.progress === "number" ? event.progress / 100 : 0;
   send({
     type: "model-progress",
+    modelId: activeModelId,
     progress: Math.max(0, Math.min(progress, 1)),
     file: typeof event?.file === "string" ? event.file : "",
     status: event?.status ?? "loading",
@@ -81,7 +84,7 @@ async function getTranscriber() {
   }
   try {
     const transcriber = await transcriberPromise;
-    send({ type: "model-ready", backend });
+    send({ type: "model-ready", backend, modelId: activeModelId });
     return transcriber;
   } catch (error) {
     transcriberPromise = null;
@@ -92,6 +95,7 @@ async function getTranscriber() {
 async function retryWithWasm(error: unknown) {
   send({
     type: "model-fallback",
+    modelId: activeModelId,
     message: `WebGPU transcription failed · switching to CPU (${error instanceof Error ? error.message : String(error)})`,
   });
   const previous = transcriberPromise ? await transcriberPromise.catch(() => null) : null;
@@ -101,9 +105,14 @@ async function retryWithWasm(error: unknown) {
 }
 
 async function runChunk(transcriber: any, audio: Float32Array) {
-  const options = {
+  const model = getModelOption(activeModelId);
+  const options: Record<string, unknown> = {
     return_timestamps: true as const,
   };
+  if (model.language === "ja") {
+    options.language = "japanese";
+    options.task = "transcribe";
+  }
   const activeTranscriber = backend === "WASM" && transcriberPromise
     ? await transcriberPromise
     : transcriber;
@@ -150,9 +159,9 @@ function sentenceEntries(words: WordChunk[], offset: number, final: boolean): Tr
 }
 
 async function transcribe(jobId: string, audio: Float32Array, resumeAt: number) {
-  send({ type: "job-accepted", jobId });
+  send({ type: "job-accepted", jobId, modelId: activeModelId });
   const transcriber = await getTranscriber();
-  send({ type: "job-started", jobId, backend });
+  send({ type: "job-started", jobId, backend, modelId: activeModelId });
   const totalSeconds = audio.length / SAMPLE_RATE;
   let cursor = Math.max(0, Math.min(resumeAt, totalSeconds));
   let pending: WordChunk[] = [];
@@ -196,6 +205,14 @@ self.onmessage = async (event: MessageEvent) => {
   const message = event.data;
   try {
     if (message.type === "load") {
+      const requestedModel = getModelOption(message.modelId ?? DEFAULT_MODEL_ID);
+      if (requestedModel.id !== activeModelId) {
+        const previous = transcriberPromise ? await transcriberPromise.catch(() => null) : null;
+        await previous?.dispose?.();
+        transcriberPromise = null;
+        activeModelId = requestedModel.id;
+        backend = "WASM";
+      }
       await getTranscriber();
     }
     if (message.type === "transcribe") {
@@ -204,6 +221,7 @@ self.onmessage = async (event: MessageEvent) => {
   } catch (error) {
     send({
       type: "error",
+      modelId: activeModelId,
       jobId: message.jobId,
       message: error instanceof Error ? error.message : String(error),
     });
