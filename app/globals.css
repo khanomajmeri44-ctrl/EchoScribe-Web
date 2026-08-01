@@ -146,6 +146,24 @@ button {
   text-decoration: none;
 }
 
+.language-toggle {
+  width: 52px;
+  min-width: 52px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-family: Georgia, "Times New Roman", "Microsoft YaHei", serif;
+  font-size: 15px;
+}
+
+.language-toggle i {
+  color: var(--secondary);
+  font-size: 11px;
+  font-style: normal;
+}
+
 .model-pill {
   min-width: 248px;
   display: flex;
@@ -292,6 +310,59 @@ button {
   margin: 0;
   color: var(--secondary);
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.language-dialog {
+  width: min(620px, 100%);
+}
+
+.language-dialog-heading {
+  align-items: flex-start;
+}
+
+.language-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.language-choice {
+  min-height: 184px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-alt);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+
+.language-choice:hover {
+  border-color: var(--text);
+  transform: translateY(-2px);
+}
+
+.language-choice-mark {
+  margin-bottom: 18px;
+  font-family: Georgia, "Times New Roman", "Microsoft YaHei", serif;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.language-choice strong {
+  font-size: 17px;
+}
+
+.language-choice small {
+  margin-top: 8px;
+  color: var(--secondary);
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -938,8 +1009,12 @@ input[type="range"]::-moz-range-thumb {
     position: relative;
   }
 
-  .top-actions .quiet:nth-of-type(2) {
+  .regenerate-button {
     display: none;
+  }
+
+  .language-choice-grid {
+    grid-template-columns: 1fr;
   }
 
   .model-pill {

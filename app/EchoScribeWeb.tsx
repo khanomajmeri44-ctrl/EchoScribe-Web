@@ -20,6 +20,126 @@ type WorkerEvent = {
   modelId?: ModelId;
 };
 
+type UiLanguage = "en" | "zh";
+type SetupStep = "model" | "language";
+
+const COPY = {
+  en: {
+    downloadWindows: "Download Windows",
+    light: "Light",
+    dark: "Dark",
+    regenerate: "Regenerate",
+    openAudio: "Open audio",
+    englishModels: "English models",
+    japaneseModels: "Japanese models",
+    preparingEngine: "Preparing transcription engine",
+    loading: "Loading",
+    cancelAndChoose: "Cancel and choose another",
+    firstTimeSetup: "FIRST-TIME SETUP",
+    chooseLevel: "Choose your transcription level",
+    modelSaved: "Your choice is saved on this device. You can change it at any time.",
+    english: "English",
+    japanese: "Japanese",
+    recommended: "Recommended",
+    higherLevels: "Higher levels improve difficult audio but require more memory and a longer first download.",
+    chooseInterfaceLanguage: "Choose your interface language",
+    languageSaved: "The interface language is saved in this browser and can be changed from A/文 at any time.",
+    chineseInterface: "中文界面",
+    englishInterface: "English interface",
+    chineseInterfaceHint: "使用简体中文显示按钮、提示和设置",
+    englishInterfaceHint: "Display buttons, prompts, and settings in English",
+    audioWorkspace: "AUDIO WORKSPACE",
+    openAnAudio: "Open an audio file",
+    browserAudio: "Browser-synchronized audio",
+    onDevice: "On-device only",
+    back10: "Back 10 seconds",
+    forward10: "Forward 10 seconds",
+    playAudio: "Play audio",
+    pauseAudio: "Pause audio",
+    volume: "Volume",
+    privateTitle: "Private by design",
+    privateBody: "Your audio never leaves this device. The selected model and transcript are cached by this browser.",
+    transcript: "Transcript",
+    transcriptSubtitle: "New passages appear here while the audio is transcribed",
+    searchTranscript: "Search transcript",
+    listening: "Listening for",
+    speech: "speech…",
+    transcriptEmpty: "Your transcript will appear here",
+    openOrDrop: "Open or drop an audio file to begin local transcription.",
+    modelCaching: "The selected model is being cached for first use.",
+    showSubtitles: "Show subtitle text",
+    hideSubtitles: "Hide subtitle text",
+    continueAudio: "Continue audio",
+    switchLanguage: "切换到中文界面",
+    ready: "ready",
+    passages: "passages",
+    levels: ["Fast", "Balanced", "Advanced"],
+    memory: ["Low memory", "Medium memory", "High memory"],
+    recommendations: [
+      "Recommended for 4 GB RAM, older CPUs, and integrated graphics",
+      "Recommended for 8 GB RAM and 8th-gen i5 or newer",
+      "Recommended for 16 GB RAM and modern WebGPU hardware",
+    ],
+  },
+  zh: {
+    downloadWindows: "下载 Windows 客户端",
+    light: "浅色",
+    dark: "深色",
+    regenerate: "重新生成字幕",
+    openAudio: "打开音频",
+    englishModels: "英语模型",
+    japaneseModels: "日语模型",
+    preparingEngine: "正在准备转写引擎",
+    loading: "正在加载",
+    cancelAndChoose: "取消并选择其他模型",
+    firstTimeSetup: "首次设置",
+    chooseLevel: "选择转写语言和性能档位",
+    modelSaved: "选择会保存在此设备中，之后可随时在右上角更改。",
+    english: "英语",
+    japanese: "日语",
+    recommended: "推荐",
+    higherLevels: "更高档位对复杂音频的识别更准确，但需要更多内存，首次下载时间也更长。",
+    chooseInterfaceLanguage: "选择界面语言",
+    languageSaved: "界面语言会保存在此浏览器中，之后可随时通过顶部的 A/文 按钮切换。",
+    chineseInterface: "中文界面",
+    englishInterface: "English interface",
+    chineseInterfaceHint: "使用简体中文显示按钮、提示和设置",
+    englishInterfaceHint: "Display buttons, prompts, and settings in English",
+    audioWorkspace: "音频工作区",
+    openAnAudio: "打开一个音频文件",
+    browserAudio: "浏览器同步音频",
+    onDevice: "仅在本机处理",
+    back10: "后退 10 秒",
+    forward10: "前进 10 秒",
+    playAudio: "播放音频",
+    pauseAudio: "暂停音频",
+    volume: "音量",
+    privateTitle: "隐私优先",
+    privateBody: "音频不会离开此设备，所选模型和转写结果仅缓存在当前浏览器中。",
+    transcript: "字幕",
+    transcriptSubtitle: "转写过程中，新的字幕段落会实时显示在这里",
+    searchTranscript: "搜索字幕",
+    listening: "正在识别",
+    speech: "语音…",
+    transcriptEmpty: "字幕将在这里显示",
+    openOrDrop: "打开或拖入音频文件即可开始本地转写。",
+    modelCaching: "首次使用时正在缓存所选模型。",
+    showSubtitles: "显示字幕文字",
+    hideSubtitles: "隐藏字幕文字",
+    continueAudio: "继续播放",
+    switchLanguage: "Switch to English",
+    ready: "已就绪",
+    passages: "条字幕",
+    levels: ["快速", "均衡", "高精度"],
+    memory: ["低内存占用", "中等内存占用", "高内存占用"],
+    recommendations: [
+      "适合 4 GB 内存、较旧处理器和集成显卡",
+      "推荐 8 GB 内存及第 8 代 i5 或更新配置",
+      "推荐 16 GB 内存及支持 WebGPU 的现代硬件",
+    ],
+  },
+} as const;
+
 const WAVEFORM = [
   16, 27, 39, 24, 48, 31, 19, 42, 52, 34, 27, 45, 58, 33, 22, 49, 61, 38, 25, 54,
   63, 41, 29, 57, 46, 31, 51, 37, 23, 44, 55, 35, 18,
@@ -75,6 +195,9 @@ function downloadFile(name: string, content: string, type: string) {
 
 export default function EchoScribeWeb() {
   const [dark, setDark] = useState(false);
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>("en");
+  const [setupStep, setSetupStep] = useState<SetupStep>("model");
+  const [pendingModelId, setPendingModelId] = useState<ModelId>(DEFAULT_MODEL_ID);
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState("");
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
@@ -106,6 +229,13 @@ export default function EchoScribeWeb() {
   const selectedModelRef = useRef<ModelId>(DEFAULT_MODEL_ID);
   const workerModelRef = useRef<ModelId | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copy = COPY[uiLanguage];
+  const tr = (english: string, chinese: string) => uiLanguage === "zh" ? chinese : english;
+  const displayModel = (modelId: ModelId) => {
+    const model = getModelOption(modelId);
+    const levelIndex = modelId.endsWith("tiny") ? 0 : modelId.endsWith("base") ? 1 : 2;
+    return `${model.language === "ja" ? copy.japanese : copy.english} · ${copy.levels[levelIndex]}`;
+  };
 
   const replaceEntries = (value: TranscriptEntry[]) => {
     entriesRef.current = value;
@@ -161,12 +291,12 @@ export default function EchoScribeWeb() {
       modelProgressRef.current = next;
       setModelProgress(next);
       if (!modelReady && !activeFileRef.current) {
-        setStatus(next >= 1 ? "Initializing transcription engine…" : `Caching ${activeModel.shortLabel} · ${Math.round(next * 100)}%`);
+        setStatus(next >= 1 ? tr("Initializing transcription engine…", "正在初始化转写引擎…") : tr(`Caching ${activeModel.shortLabel} · ${Math.round(next * 100)}%`, `正在缓存${displayModel(activeModel.id)} · ${Math.round(next * 100)}%`));
       }
       return;
     }
     if (message.type === "model-runtime") {
-      if (!activeFileRef.current) setStatus(`Initializing ${message.backend ?? "CPU"} runtime…`);
+      if (!activeFileRef.current) setStatus(tr(`Initializing ${message.backend ?? "CPU"} runtime…`, `正在初始化 ${message.backend ?? "CPU"} 运行环境…`));
       return;
     }
     if (message.type === "model-ready") {
@@ -176,34 +306,34 @@ export default function EchoScribeWeb() {
       setModelChoiceReady(true);
       setModelChooserOpen(false);
       setBackend(message.backend ?? "WASM");
-      if (!activeFileRef.current) setStatus(`${activeModel.shortLabel} ready · ${message.backend ?? "WASM"}`);
+      if (!activeFileRef.current) setStatus(tr(`${activeModel.shortLabel} ready · ${message.backend ?? "WASM"}`, `${displayModel(activeModel.id)}已就绪 · ${message.backend ?? "WASM"}`));
       return;
     }
     if (message.type === "model-fallback") {
-      setStatus(message.message ?? "Switching to CPU mode");
+      setStatus(message.message ?? tr("Switching to CPU mode", "正在切换到 CPU 模式"));
       return;
     }
     if (message.type === "error" && !message.jobId) {
       setModelReady(false);
-      setStatus(`Model initialization failed · ${message.message ?? "Unknown error"}`);
-      showToast("Model initialization failed. Reload to retry.");
+      setStatus(tr(`Model initialization failed · ${message.message ?? "Unknown error"}`, `模型初始化失败 · ${message.message ?? "未知错误"}`));
+      showToast(tr("Model initialization failed. Reload to retry.", "模型初始化失败，请刷新页面后重试。"));
       return;
     }
     if (!message.jobId || message.jobId !== activeJobRef.current) return;
     if (message.type === "job-accepted") {
-      setStatus(modelReady ? `Starting ${activeModel.label} transcription…` : "Audio ready · waiting for model initialization…");
+      setStatus(modelReady ? tr(`Starting ${activeModel.label} transcription…`, `正在使用${displayModel(activeModel.id)}开始转写…`) : tr("Audio ready · waiting for model initialization…", "音频已就绪 · 正在等待模型初始化…"));
       return;
     }
     if (message.type === "job-started") {
       setBackend(message.backend ?? backend);
-      setStatus(`Transcribing live · ${message.backend ?? backend}`);
+      setStatus(tr(`Transcribing live · ${message.backend ?? backend}`, `正在实时转写 · ${message.backend ?? backend}`));
       return;
     }
     if (message.type === "partial") {
       const merged = mergeEntries(entriesRef.current, message.entries ?? []);
       replaceEntries(merged);
       setProgress(message.progress ?? 0);
-      setStatus(`Transcribing live · ${activeModel.shortLabel} · ${merged.length} passages ready`);
+      setStatus(tr(`Transcribing live · ${activeModel.shortLabel} · ${merged.length} passages ready`, `正在实时转写 · ${displayModel(activeModel.id)} · 已生成 ${merged.length} 条字幕`));
       const currentFile = activeFileRef.current;
       if (currentFile) {
         void writeTranscript(currentFile, merged, message.processedUntil ?? 0, false, activeModel.id);
@@ -217,16 +347,16 @@ export default function EchoScribeWeb() {
       }
       setProgress(1);
       setProcessing(false);
-      setStatus(`${activeModel.language === "ja" ? "Japanese" : "English"} transcript ready · ${entriesRef.current.length} passages`);
-      showToast("Transcript ready and cached on this device");
+      setStatus(tr(`${activeModel.language === "ja" ? "Japanese" : "English"} transcript ready · ${entriesRef.current.length} passages`, `${activeModel.language === "ja" ? "日语" : "英语"}字幕已完成 · ${entriesRef.current.length} 条`));
+      showToast(tr("Transcript ready and cached on this device", "字幕已完成并缓存在此设备中"));
       resolveJobRef.current?.(true);
       resolveJobRef.current = null;
       return;
     }
     if (message.type === "error") {
       setProcessing(false);
-      setStatus(`Transcription paused · ${message.message ?? "Unknown error"}`);
-      showToast("Transcription paused. Your completed subtitles remain saved.");
+      setStatus(tr(`Transcription paused · ${message.message ?? "Unknown error"}`, `转写已暂停 · ${message.message ?? "未知错误"}`));
+      showToast(tr("Transcription paused. Your completed subtitles remain saved.", "转写已暂停，已完成的字幕仍然保留。"));
       resolveJobRef.current?.(false);
       resolveJobRef.current = null;
     }
@@ -235,6 +365,9 @@ export default function EchoScribeWeb() {
   useEffect(() => {
     const savedTheme = localStorage.getItem("echoscribe-theme");
     setDark(savedTheme === "dark");
+    const savedUiLanguage = localStorage.getItem("echoscribe-ui-language");
+    const initialUiLanguage: UiLanguage = savedUiLanguage === "zh" ? "zh" : "en";
+    setUiLanguage(initialUiLanguage);
     const savedModel = localStorage.getItem("echoscribe-model");
     const initialModel = isModelId(savedModel) ? savedModel : null;
     if ("serviceWorker" in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
@@ -246,8 +379,9 @@ export default function EchoScribeWeb() {
       createWorker(initialModel);
     } else {
       setModelChoiceReady(false);
+      setSetupStep("model");
       setModelChooserOpen(true);
-      setStatus("Choose a language and performance level to begin");
+      setStatus(initialUiLanguage === "zh" ? "请选择转写语言和性能档位" : "Choose a language and performance level to begin");
     }
     return () => {
       workerRef.current?.terminate();
@@ -263,7 +397,7 @@ export default function EchoScribeWeb() {
     const model = getModelOption(modelId);
     setProcessing(true);
     setProgress(duration ? Math.min(resumeAt / duration, 0.98) : 0.01);
-    setStatus(resumeAt ? `Resuming from ${formatTime(resumeAt)} · ${model.shortLabel}` : "Preparing local audio…");
+    setStatus(resumeAt ? tr(`Resuming from ${formatTime(resumeAt)} · ${model.shortLabel}`, `正在从 ${formatTime(resumeAt)} 继续 · ${displayModel(model.id)}`) : tr("Preparing local audio…", "正在准备本地音频…"));
     try {
       const samples = await decodeAudio(selectedFile);
       const jobId = crypto.randomUUID();
@@ -272,7 +406,7 @@ export default function EchoScribeWeb() {
       const worker = ensureWorker(modelId);
       return await new Promise<boolean>((resolve) => {
         resolveJobRef.current = resolve;
-        setStatus(modelReady && workerModelRef.current === modelId ? `Starting ${model.label} transcription…` : "Audio decoded · waiting for model initialization…");
+        setStatus(modelReady && workerModelRef.current === modelId ? tr(`Starting ${model.label} transcription…`, `正在使用${displayModel(model.id)}开始转写…`) : tr("Audio decoded · waiting for model initialization…", "音频解码完成 · 正在等待模型初始化…"));
         worker.postMessage(
           { type: "transcribe", jobId, audio: samples, resumeAt, modelId },
           [samples.buffer],
@@ -280,8 +414,8 @@ export default function EchoScribeWeb() {
       });
     } catch (error) {
       setProcessing(false);
-      setStatus(error instanceof Error ? error.message : "This audio could not be decoded");
-      showToast("This browser could not decode the selected audio");
+      setStatus(error instanceof Error ? error.message : tr("This audio could not be decoded", "无法解码此音频"));
+      showToast(tr("This browser could not decode the selected audio", "当前浏览器无法解码所选音频"));
       return false;
     }
   };
@@ -289,11 +423,11 @@ export default function EchoScribeWeb() {
   const openAudio = async (selectedFile: File, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
     if (!modelChoiceReady) {
       setModelChooserOpen(true);
-      showToast("Choose a transcription model first");
+      showToast(tr("Choose a transcription model first", "请先选择转写模型"));
       return false;
     }
     if (!selectedFile.type.startsWith("audio/") && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm)$/i.test(selectedFile.name)) {
-      showToast("Choose a supported audio file");
+      showToast(tr("Choose a supported audio file", "请选择受支持的音频文件"));
       return false;
     }
     if (processing) stopCurrentJob();
@@ -310,12 +444,12 @@ export default function EchoScribeWeb() {
       replaceEntries(cached.entries);
       if (cached.complete) {
         setProgress(1);
-        setStatus(`Loaded cached transcript · ${cached.entries.length} passages`);
-        showToast("Cached transcript loaded instantly");
+        setStatus(tr(`Loaded cached transcript · ${cached.entries.length} passages`, `已加载缓存字幕 · ${cached.entries.length} 条`));
+        showToast(tr("Cached transcript loaded instantly", "已直接加载缓存字幕"));
         return true;
       }
       const resumeAt = Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0);
-      setStatus(`Loaded ${cached.entries.length} saved passages · resuming`);
+      setStatus(tr(`Loaded ${cached.entries.length} saved passages · resuming`, `已加载 ${cached.entries.length} 条已保存字幕 · 正在继续`));
       return beginTranscription(selectedFile, resumeAt, modelId);
     }
     replaceEntries([]);
@@ -336,8 +470,20 @@ export default function EchoScribeWeb() {
     await deleteTranscript(file, modelId);
     replaceEntries([]);
     setProgress(0);
-    showToast(`Regenerating with ${getModelOption(modelId).label}`);
+    showToast(tr(`Regenerating with ${getModelOption(modelId).label}`, `正在使用${displayModel(modelId)}重新生成字幕`));
     void beginTranscription(file, 0, modelId);
+  };
+
+  const chooseInitialModel = (modelId: ModelId) => {
+    setPendingModelId(modelId);
+    setSetupStep("language");
+  };
+
+  const completeInitialSetup = (language: UiLanguage) => {
+    setUiLanguage(language);
+    localStorage.setItem("echoscribe-ui-language", language);
+    setStatus(language === "zh" ? "正在加载所选模型…" : "Loading the selected model…");
+    void applyModelChoice(pendingModelId);
   };
 
   const applyModelChoice = async (nextModelId: ModelId) => {
@@ -358,19 +504,19 @@ export default function EchoScribeWeb() {
     setBackend("Detecting");
     createWorker(nextModelId);
     const model = getModelOption(nextModelId);
-    setStatus(`Loading ${model.label}…`);
+    setStatus(tr(`Loading ${model.label}…`, `正在加载${displayModel(model.id)}…`));
     if (!file) return;
     const cached = await readTranscript(file, nextModelId);
     replaceEntries(cached?.entries ?? []);
     if (cached?.complete) {
       setProgress(1);
-      setStatus(`Loaded cached ${model.label} transcript · ${cached.entries.length} passages`);
-      showToast("Saved model choice and loaded its cached transcript");
+      setStatus(tr(`Loaded cached ${model.label} transcript · ${cached.entries.length} passages`, `已加载${displayModel(model.id)}的缓存字幕 · ${cached.entries.length} 条`));
+      showToast(tr("Saved model choice and loaded its cached transcript", "已保存模型选择并加载对应缓存字幕"));
       return;
     }
     setProgress(0);
     const resumeAt = cached ? Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0) : 0;
-    showToast(`Saved model choice · ${model.label}`);
+    showToast(tr(`Saved model choice · ${model.label}`, `已保存模型选择 · ${displayModel(model.id)}`));
     void beginTranscription(file, resumeAt, nextModelId);
   };
 
@@ -386,14 +532,25 @@ export default function EchoScribeWeb() {
     setModelProgress(0);
     modelProgressRef.current = 0;
     setBackend("Detecting");
+    setSetupStep("model");
     setModelChooserOpen(true);
-    setStatus("Model loading cancelled · choose another option");
+    setStatus(tr("Model loading cancelled · choose another option", "模型加载已取消 · 请选择其他模型"));
   };
 
   const toggleTheme = () => {
     const next = !dark;
     setDark(next);
     localStorage.setItem("echoscribe-theme", next ? "dark" : "light");
+  };
+
+  const toggleInterfaceLanguage = () => {
+    const next: UiLanguage = uiLanguage === "en" ? "zh" : "en";
+    setUiLanguage(next);
+    localStorage.setItem("echoscribe-ui-language", next);
+    if (processing) setStatus(next === "zh" ? "正在实时转写…" : "Transcribing live…");
+    else if (entriesRef.current.length) setStatus(next === "zh" ? `已生成 ${entriesRef.current.length} 条字幕` : `${entriesRef.current.length} passages ready`);
+    else if (modelReady) setStatus(next === "zh" ? `模型已就绪 · ${backend}` : `Model ready · ${backend}`);
+    else setStatus(next === "zh" ? "打开音频文件即可开始" : "Open an audio file to begin");
   };
 
   const togglePlayback = () => {
@@ -463,7 +620,9 @@ export default function EchoScribeWeb() {
   };
 
   const selectedModel = getModelOption(selectedModelId);
-  const fileKind = file ? `${file.name.split(".").at(-1)?.toUpperCase() ?? "AUDIO"} AUDIO` : `${selectedModel.language === "ja" ? "JAPANESE" : "ENGLISH"} AUDIO WORKSPACE`;
+  const fileKind = file
+    ? `${file.name.split(".").at(-1)?.toUpperCase() ?? "AUDIO"} AUDIO`
+    : `${selectedModel.language === "ja" ? copy.japanese : copy.english} · ${copy.audioWorkspace}`;
   const modelStateLabel = modelReady ? backend : `${Math.round(modelProgress * 100)}%`;
 
   return (
@@ -478,29 +637,32 @@ export default function EchoScribeWeb() {
             className="quiet windows-download"
             href="https://github.com/khanomajmeri44-ctrl/EchoScribe-Web/releases/download/v1.2.0/EchoScribe-1.2.0-SelfExtracting.exe"
             download
-            title="Download EchoScribe for Windows"
+            title={copy.downloadWindows}
           >
-            Download Windows
+            {copy.downloadWindows}
           </a>
-          <button className="quiet" onClick={toggleTheme}>{dark ? "Light" : "Dark"}</button>
-          <button className="quiet" disabled={!modelChoiceReady || !file} onClick={() => void regenerate()}>Regenerate</button>
+          <button className="quiet language-toggle" aria-label={copy.switchLanguage} title={copy.switchLanguage} onClick={toggleInterfaceLanguage}>
+            <span>A</span><i>/</i><span>文</span>
+          </button>
+          <button className="quiet" onClick={toggleTheme}>{dark ? copy.light : copy.dark}</button>
+          <button className="quiet regenerate-button" disabled={!modelChoiceReady || !file} onClick={() => void regenerate()}>{copy.regenerate}</button>
           <label className="model-pill">
             <select aria-label="Transcription model" value={selectedModelId} onChange={(event) => void handleModelChange(event)}>
-              <optgroup label="English models">
-                {MODEL_OPTIONS.filter((model) => model.language === "en").map((model) => (
-                  <option key={model.id} value={model.id}>{model.label} — {model.tier}</option>
+              <optgroup label={copy.englishModels}>
+                {MODEL_OPTIONS.filter((model) => model.language === "en").map((model, index) => (
+                  <option key={model.id} value={model.id}>{copy.english} · {copy.levels[index]} — {copy.memory[index]}</option>
                 ))}
               </optgroup>
-              <optgroup label="日本語モデル">
-                {MODEL_OPTIONS.filter((model) => model.language === "ja").map((model) => (
-                  <option key={model.id} value={model.id}>{model.label} — {model.tier}</option>
+              <optgroup label={copy.japaneseModels}>
+                {MODEL_OPTIONS.filter((model) => model.language === "ja").map((model, index) => (
+                  <option key={model.id} value={model.id}>{copy.japanese} · {copy.levels[index]} — {copy.memory[index]}</option>
                 ))}
               </optgroup>
             </select>
             <span className="model-state">{modelStateLabel}</span>
             <span className="model-dot" />
           </label>
-          <button className="solid" disabled={!modelChoiceReady} onClick={() => inputRef.current?.click()}>Open audio</button>
+          <button className="solid" disabled={!modelChoiceReady} onClick={() => inputRef.current?.click()}>{copy.openAudio}</button>
         </div>
         <input ref={inputRef} className="hidden-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm" onChange={handleAudioInput} />
       </header>
@@ -508,39 +670,65 @@ export default function EchoScribeWeb() {
       {modelChoiceReady && !modelReady && (
         <aside className="model-loader" role="status" aria-live="polite">
           <div className="model-loader-copy">
-            <strong>{modelProgress >= 1 ? "Preparing transcription engine" : `Loading ${selectedModel.label}`}</strong>
+            <strong>{modelProgress >= 1 ? copy.preparingEngine : `${copy.loading} ${selectedModel.language === "ja" ? copy.japanese : copy.english}`}</strong>
             <span>{Math.round(modelProgress * 100)}%</span>
           </div>
           <div className="model-loader-track" aria-hidden="true"><span style={{ width: `${modelProgress * 100}%` }} /></div>
-          <button onClick={cancelModelLoading}>Cancel and choose another</button>
+          <button onClick={cancelModelLoading}>{copy.cancelAndChoose}</button>
         </aside>
       )}
 
       {modelChooserOpen && (
         <div className="model-dialog-backdrop" role="presentation">
-          <section className="model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-dialog-title">
-            <div className="model-dialog-heading">
-              <div>
-                <div className="eyebrow">FIRST-TIME SETUP</div>
-                <h2 id="model-dialog-title">Choose your transcription level</h2>
-              </div>
-              <p>Your choice is saved on this device. You can change it at any time.</p>
-            </div>
-            {(["en", "ja"] as const).map((language) => (
-              <div className="model-language-group" key={language}>
-                <h3>{language === "en" ? "English" : "日本語"}</h3>
-                <div className="model-choice-grid">
-                  {MODEL_OPTIONS.filter((model) => model.language === language).map((model, index) => (
-                    <button key={model.id} className="model-choice" onClick={() => void applyModelChoice(model.id)}>
-                      <span className="model-choice-top"><strong>{model.label.split(" · ").at(-1)}</strong>{index === 0 && <em>Recommended</em>}</span>
-                      <span>{model.tier}</span>
-                      <small>{model.recommendation}</small>
-                    </button>
-                  ))}
+          <section className={setupStep === "language" ? "model-dialog language-dialog" : "model-dialog"} role="dialog" aria-modal="true" aria-labelledby="model-dialog-title">
+            {setupStep === "model" ? (
+              <>
+                <div className="model-dialog-heading">
+                  <div>
+                    <div className="eyebrow">{copy.firstTimeSetup}</div>
+                    <h2 id="model-dialog-title">{copy.chooseLevel}</h2>
+                  </div>
+                  <p>{copy.modelSaved}</p>
                 </div>
-              </div>
-            ))}
-            <p className="model-dialog-note">Higher levels improve difficult audio but require more memory and a longer first download.</p>
+                {(["en", "ja"] as const).map((language) => (
+                  <div className="model-language-group" key={language}>
+                    <h3>{language === "en" ? copy.english : copy.japanese}</h3>
+                    <div className="model-choice-grid">
+                      {MODEL_OPTIONS.filter((model) => model.language === language).map((model, index) => (
+                        <button key={model.id} className="model-choice" onClick={() => chooseInitialModel(model.id)}>
+                          <span className="model-choice-top"><strong>{copy.levels[index]}</strong>{index === 0 && <em>{copy.recommended}</em>}</span>
+                          <span>{copy.memory[index]}</span>
+                          <small>{copy.recommendations[index]}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <p className="model-dialog-note">{copy.higherLevels}</p>
+              </>
+            ) : (
+              <>
+                <div className="model-dialog-heading language-dialog-heading">
+                  <div>
+                    <div className="eyebrow">2 / 2 · A / 文</div>
+                    <h2 id="model-dialog-title">选择界面语言 / Choose interface language</h2>
+                  </div>
+                  <p>选择会保存在此浏览器中 / Your choice is saved in this browser.</p>
+                </div>
+                <div className="language-choice-grid">
+                  <button className="language-choice" onClick={() => completeInitialSetup("zh")}>
+                    <span className="language-choice-mark">文</span>
+                    <strong>{COPY.zh.chineseInterface}</strong>
+                    <small>{COPY.zh.chineseInterfaceHint}</small>
+                  </button>
+                  <button className="language-choice" onClick={() => completeInitialSetup("en")}>
+                    <span className="language-choice-mark">A</span>
+                    <strong>{COPY.en.englishInterface}</strong>
+                    <small>{COPY.en.englishInterfaceHint}</small>
+                  </button>
+                </div>
+              </>
+            )}
           </section>
         </div>
       )}
@@ -549,7 +737,7 @@ export default function EchoScribeWeb() {
         <section className="player-card">
           <div className="file-heading">
             <div className="eyebrow">{fileKind}</div>
-            <h1>{file?.name ?? `Open a${selectedModel.language === "en" ? "n English" : " Japanese"} audio file`}</h1>
+            <h1>{file?.name ?? `${copy.openAnAudio} · ${selectedModel.language === "ja" ? copy.japanese : copy.english}`}</h1>
             <p>{status}</p>
           </div>
 
@@ -558,8 +746,8 @@ export default function EchoScribeWeb() {
               {WAVEFORM.map((height, index) => <span key={index} style={{ height }} />)}
             </div>
             <div className="wave-caption">
-              <span>Browser-synchronized audio</span>
-              <span className="privacy-dot">On-device only</span>
+              <span>{copy.browserAudio}</span>
+              <span className="privacy-dot">{copy.onDevice}</span>
             </div>
           </div>
 
@@ -577,7 +765,7 @@ export default function EchoScribeWeb() {
 
           <div className="timeline">
             <input
-              aria-label="Audio position"
+              aria-label={uiLanguage === "zh" ? "音频进度" : "Audio position"}
               type="range"
               min="0"
               max={duration || 1}
@@ -594,24 +782,24 @@ export default function EchoScribeWeb() {
           </div>
 
           <div className="transport-row">
-            <button className="round" aria-label="Back 10 seconds" onClick={() => moveBy(-10)}>−10</button>
-            <button className="play" aria-label={playing ? "Pause audio" : "Play audio"} onClick={togglePlayback}>{playing ? "Ⅱ" : "▶"}</button>
-            <button className="round" aria-label="Forward 10 seconds" onClick={() => moveBy(10)}>+10</button>
+            <button className="round" aria-label={copy.back10} onClick={() => moveBy(-10)}>−10</button>
+            <button className="play" aria-label={playing ? copy.pauseAudio : copy.playAudio} onClick={togglePlayback}>{playing ? "Ⅱ" : "▶"}</button>
+            <button className="round" aria-label={copy.forward10} onClick={() => moveBy(10)}>+10</button>
             <div className="volume-control">
-              <span>Volume</span>
-              <input aria-label="Volume" type="range" min="0" max="1" step="0.01" value={volume} onChange={(event) => setVolume(Number(event.target.value))} />
+              <span>{copy.volume}</span>
+              <input aria-label={copy.volume} type="range" min="0" max="1" step="0.01" value={volume} onChange={(event) => setVolume(Number(event.target.value))} />
             </div>
           </div>
 
           <div className="local-note">
-            <div><span className="shield">✓</span><strong>Private by design</strong></div>
-            <p>Your audio never leaves this device. The selected model and transcript are cached by this browser.</p>
+            <div><span className="shield">✓</span><strong>{copy.privateTitle}</strong></div>
+            <p>{copy.privateBody}</p>
           </div>
         </section>
 
         <section className="transcript-card">
           <div className="transcript-header">
-            <div><h2>Transcript</h2><p>New passages appear here while the audio is transcribed</p></div>
+            <div><h2>{copy.transcript}</h2><p>{copy.transcriptSubtitle}</p></div>
             <div className="export-actions">
               <button className="quiet compact" disabled={!entries.length} onClick={exportText}>TXT</button>
               <button className="quiet compact" disabled={!entries.length} onClick={exportSrt}>SRT</button>
@@ -619,15 +807,15 @@ export default function EchoScribeWeb() {
           </div>
           <div className="search-wrap">
             <span>⌕</span>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search transcript" aria-label="Search transcript" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={copy.searchTranscript} aria-label={copy.searchTranscript} />
           </div>
           <div className="transcription-progress"><span style={{ width: `${progress * 100}%` }} /></div>
           <div className="transcript-list">
             {!filteredEntries.length && (
               <div className="empty-state">
                 <div className="empty-mark">Aa</div>
-                <h3>{processing ? `Listening for ${selectedModel.language === "ja" ? "Japanese" : "English"} speech…` : "Your transcript will appear here"}</h3>
-                <p>{modelReady ? "Open or drop an audio file to begin local transcription." : "The lightweight model is being cached for first use."}</p>
+                <h3>{processing ? `${copy.listening} ${selectedModel.language === "ja" ? copy.japanese : copy.english} ${copy.speech}` : copy.transcriptEmpty}</h3>
+                <p>{modelReady ? copy.openOrDrop : copy.modelCaching}</p>
               </div>
             )}
             {filteredEntries.map((entry, index) => {
@@ -644,8 +832,8 @@ export default function EchoScribeWeb() {
       </main>
 
       <div className="floating-tools">
-        <button aria-label={textHidden ? "Show subtitle text" : "Hide subtitle text"} onClick={() => setTextHidden((value) => !value)}>{textHidden ? "Aa" : "A̶a̶"}</button>
-        <button aria-label={playing ? "Pause audio" : "Continue audio"} onClick={togglePlayback}>{playing ? "Ⅱ" : "▶"}</button>
+        <button aria-label={textHidden ? copy.showSubtitles : copy.hideSubtitles} onClick={() => setTextHidden((value) => !value)}>{textHidden ? "Aa" : "A̶a̶"}</button>
+        <button aria-label={playing ? copy.pauseAudio : copy.continueAudio} onClick={togglePlayback}>{playing ? "Ⅱ" : "▶"}</button>
       </div>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
