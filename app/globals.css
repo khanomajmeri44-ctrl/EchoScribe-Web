@@ -138,17 +138,12 @@ button {
   opacity: 0.88;
 }
 
-.batch-button {
-  width: 112px;
-}
-
-.button-progress {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 4px;
-  background: var(--accent);
-  transition: width 160ms linear;
+.windows-download {
+  min-width: 148px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .model-pill {
@@ -861,7 +856,7 @@ input[type="range"]::-moz-range-thumb {
     gap: 7px;
   }
 
-  .batch-button,
+  .windows-download,
   .top-actions .quiet {
     width: auto;
     min-width: 72px;
@@ -904,10 +899,6 @@ input[type="range"]::-moz-range-thumb {
   .top-actions .solid,
   .model-pill {
     height: 36px;
-  }
-
-  .batch-button {
-    display: none;
   }
 
   .workspace {

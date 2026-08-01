@@ -1,4 +1,4 @@
-const CACHE = "echoscribe-shell-v3";
+const CACHE = "echoscribe-shell-v4";
 const SHELL = ["./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
 
 self.addEventListener("install", (event) => {

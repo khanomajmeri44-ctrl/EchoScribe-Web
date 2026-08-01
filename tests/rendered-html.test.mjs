@@ -15,6 +15,9 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.match(page, /EchoScribeWeb/);
   assert.match(app, /Transcript/);
   assert.match(app, /Open audio/);
+  assert.match(app, /Download Windows/);
+  assert.match(app, /releases\/download\/v1\.2\.0\/EchoScribe-1\.2\.0-SelfExtracting\.exe/);
+  assert.doesNotMatch(app, /Batch scan|handleBatchInput|batchProcessing/);
   assert.match(app, /Your audio never leaves this device/);
   assert.match(models, /onnx-community\/whisper-tiny\.en/);
   assert.match(models, /onnx-community\/whisper-small\.en/);

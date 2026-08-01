@@ -94,11 +94,8 @@ export default function EchoScribeWeb() {
   const [volume, setVolume] = useState(0.82);
   const [textHidden, setTextHidden] = useState(false);
   const [toast, setToast] = useState("");
-  const [batchProcessing, setBatchProcessing] = useState(false);
-  const [batchProgress, setBatchProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const batchInputRef = useRef<HTMLInputElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const workerHandlerRef = useRef<(event: MessageEvent<WorkerEvent>) => void>(() => undefined);
   const activeJobRef = useRef("");
@@ -289,7 +286,7 @@ export default function EchoScribeWeb() {
     }
   };
 
-  const openAudio = async (selectedFile: File, batchMode = false, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
+  const openAudio = async (selectedFile: File, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
     if (!modelChoiceReady) {
       setModelChooserOpen(true);
       showToast("Choose a transcription model first");
@@ -314,7 +311,7 @@ export default function EchoScribeWeb() {
       if (cached.complete) {
         setProgress(1);
         setStatus(`Loaded cached transcript · ${cached.entries.length} passages`);
-        if (!batchMode) showToast("Cached transcript loaded instantly");
+        showToast("Cached transcript loaded instantly");
         return true;
       }
       const resumeAt = Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0);
@@ -330,22 +327,6 @@ export default function EchoScribeWeb() {
     const selected = event.target.files?.[0];
     if (selected) void openAudio(selected);
     event.target.value = "";
-  };
-
-  const handleBatchInput = async (event: ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (!selected.length) return;
-    setBatchProcessing(true);
-    setBatchProgress(0);
-    let completed = 0;
-    for (const item of selected) {
-      await openAudio(item, true);
-      completed += 1;
-      setBatchProgress(completed / selected.length);
-    }
-    setBatchProcessing(false);
-    showToast(`Batch complete · ${completed} audio files cached`);
   };
 
   const regenerate = async () => {
@@ -493,14 +474,18 @@ export default function EchoScribeWeb() {
           <span>EchoScribe</span>
         </div>
         <div className="top-actions">
-          <button className="quiet batch-button" disabled={!modelChoiceReady || processing || batchProcessing} onClick={() => batchInputRef.current?.click()}>
-            {batchProcessing ? `Batch ${Math.round(batchProgress * 100)}%` : "Batch scan"}
-            {batchProcessing && <span className="button-progress" style={{ width: `${batchProgress * 100}%` }} />}
-          </button>
+          <a
+            className="quiet windows-download"
+            href="https://github.com/khanomajmeri44-ctrl/EchoScribe-Web/releases/download/v1.2.0/EchoScribe-1.2.0-SelfExtracting.exe"
+            download
+            title="Download EchoScribe for Windows"
+          >
+            Download Windows
+          </a>
           <button className="quiet" onClick={toggleTheme}>{dark ? "Light" : "Dark"}</button>
-          <button className="quiet" disabled={!modelChoiceReady || !file || batchProcessing} onClick={() => void regenerate()}>Regenerate</button>
+          <button className="quiet" disabled={!modelChoiceReady || !file} onClick={() => void regenerate()}>Regenerate</button>
           <label className="model-pill">
-            <select aria-label="Transcription model" value={selectedModelId} disabled={batchProcessing} onChange={(event) => void handleModelChange(event)}>
+            <select aria-label="Transcription model" value={selectedModelId} onChange={(event) => void handleModelChange(event)}>
               <optgroup label="English models">
                 {MODEL_OPTIONS.filter((model) => model.language === "en").map((model) => (
                   <option key={model.id} value={model.id}>{model.label} — {model.tier}</option>
@@ -518,7 +503,6 @@ export default function EchoScribeWeb() {
           <button className="solid" disabled={!modelChoiceReady} onClick={() => inputRef.current?.click()}>Open audio</button>
         </div>
         <input ref={inputRef} className="hidden-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm" onChange={handleAudioInput} />
-        <input ref={batchInputRef} className="hidden-input" type="file" multiple accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm" onChange={(event) => void handleBatchInput(event)} />
       </header>
 
       {modelChoiceReady && !modelReady && (
