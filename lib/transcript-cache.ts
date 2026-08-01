@@ -34,14 +34,18 @@ export function transcriptKey(file: File, model: string): string {
 }
 
 export async function readTranscript(file: File, model: string): Promise<TranscriptCache | null> {
-  const database = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE, "readonly");
-    const request = transaction.objectStore(STORE).get(transcriptKey(file, model));
-    request.onsuccess = () => resolve((request.result as TranscriptCache | undefined) ?? null);
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => database.close();
-  });
+  try {
+    const database = await openDatabase();
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(STORE, "readonly");
+      const request = transaction.objectStore(STORE).get(transcriptKey(file, model));
+      request.onsuccess = () => resolve((request.result as TranscriptCache | undefined) ?? null);
+      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => database.close();
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function writeTranscript(
@@ -51,34 +55,42 @@ export async function writeTranscript(
   complete: boolean,
   model: string,
 ): Promise<void> {
-  const database = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE, "readwrite");
-    transaction.objectStore(STORE).put({
-      key: transcriptKey(file, model),
-      model,
-      complete,
-      processedUntil,
-      entries,
-      updatedAt: Date.now(),
-    } satisfies TranscriptCache);
-    transaction.oncomplete = () => {
-      database.close();
-      resolve();
-    };
-    transaction.onerror = () => reject(transaction.error);
-  });
+  try {
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(STORE, "readwrite");
+      transaction.objectStore(STORE).put({
+        key: transcriptKey(file, model),
+        model,
+        complete,
+        processedUntil,
+        entries,
+        updatedAt: Date.now(),
+      } satisfies TranscriptCache);
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } catch {
+    return;
+  }
 }
 
 export async function deleteTranscript(file: File, model: string): Promise<void> {
-  const database = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE, "readwrite");
-    transaction.objectStore(STORE).delete(transcriptKey(file, model));
-    transaction.oncomplete = () => {
-      database.close();
-      resolve();
-    };
-    transaction.onerror = () => reject(transaction.error);
-  });
+  try {
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(STORE, "readwrite");
+      transaction.objectStore(STORE).delete(transcriptKey(file, model));
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } catch {
+    return;
+  }
 }

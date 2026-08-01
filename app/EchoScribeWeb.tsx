@@ -171,17 +171,34 @@ function mergeEntries(current: TranscriptEntry[], incoming: TranscriptEntry[]): 
 }
 
 async function decodeAudio(file: File): Promise<Float32Array> {
-  const sourceContext = new AudioContext();
-  const decoded = await sourceContext.decodeAudioData(await file.arrayBuffer());
-  await sourceContext.close();
-  const length = Math.max(1, Math.ceil(decoded.duration * 16000));
-  const offline = new OfflineAudioContext(1, length, 16000);
-  const source = offline.createBufferSource();
-  source.buffer = decoded;
-  source.connect(offline.destination);
-  source.start();
-  const rendered = await offline.startRendering();
-  return new Float32Array(rendered.getChannelData(0));
+  const AudioContextClass = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) throw new Error("Web Audio is not available in this browser");
+  const sourceContext = new AudioContextClass();
+  try {
+    const decoded = await sourceContext.decodeAudioData(await file.arrayBuffer());
+    const outputLength = Math.max(1, Math.ceil(decoded.duration * 16000));
+    const output = new Float32Array(outputLength);
+    const channels = Array.from({ length: decoded.numberOfChannels }, (_, index) => decoded.getChannelData(index));
+    const sampleRatio = decoded.sampleRate / 16000;
+    for (let outputIndex = 0; outputIndex < outputLength; outputIndex += 1) {
+      const sourcePosition = Math.min(outputIndex * sampleRatio, decoded.length - 1);
+      const leftIndex = Math.floor(sourcePosition);
+      const rightIndex = Math.min(leftIndex + 1, decoded.length - 1);
+      const fraction = sourcePosition - leftIndex;
+      let mixedSample = 0;
+      for (const channel of channels) {
+        mixedSample += channel[leftIndex] + (channel[rightIndex] - channel[leftIndex]) * fraction;
+      }
+      output[outputIndex] = mixedSample / Math.max(channels.length, 1);
+    }
+    return output;
+  } finally {
+    await sourceContext.close().catch(() => undefined);
+  }
+}
+
+function createJobId(): string {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function downloadFile(name: string, content: string, type: string) {
@@ -370,8 +387,8 @@ export default function EchoScribeWeb() {
     setUiLanguage(initialUiLanguage);
     const savedModel = localStorage.getItem("echoscribe-model");
     const initialModel = isModelId(savedModel) ? savedModel : null;
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
-    if (navigator.storage?.persist) void navigator.storage.persist();
+    if ("serviceWorker" in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => undefined);
+    if (navigator.storage?.persist) void navigator.storage.persist().catch(() => false);
     if (initialModel) {
       selectedModelRef.current = initialModel;
       setSelectedModelId(initialModel);
@@ -393,6 +410,10 @@ export default function EchoScribeWeb() {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
+  useEffect(() => {
+    document.documentElement.lang = uiLanguage === "zh" ? "zh-CN" : "en";
+  }, [uiLanguage]);
+
   const beginTranscription = async (selectedFile: File, resumeAt: number, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
     const model = getModelOption(modelId);
     setProcessing(true);
@@ -400,7 +421,7 @@ export default function EchoScribeWeb() {
     setStatus(resumeAt ? tr(`Resuming from ${formatTime(resumeAt)} · ${model.shortLabel}`, `正在从 ${formatTime(resumeAt)} 继续 · ${displayModel(model.id)}`) : tr("Preparing local audio…", "正在准备本地音频…"));
     try {
       const samples = await decodeAudio(selectedFile);
-      const jobId = crypto.randomUUID();
+      const jobId = createJobId();
       activeJobRef.current = jobId;
       activeFileRef.current = selectedFile;
       const worker = ensureWorker(modelId);
@@ -426,7 +447,7 @@ export default function EchoScribeWeb() {
       showToast(tr("Choose a transcription model first", "请先选择转写模型"));
       return false;
     }
-    if (!selectedFile.type.startsWith("audio/") && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm)$/i.test(selectedFile.name)) {
+    if (!selectedFile.type.startsWith("audio/") && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm|aif|aiff|caf|mp4)$/i.test(selectedFile.name)) {
       showToast(tr("Choose a supported audio file", "请选择受支持的音频文件"));
       return false;
     }
@@ -448,7 +469,7 @@ export default function EchoScribeWeb() {
         showToast(tr("Cached transcript loaded instantly", "已直接加载缓存字幕"));
         return true;
       }
-      const resumeAt = Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0);
+      const resumeAt = Math.max(cached.processedUntil, cached.entries[cached.entries.length - 1]?.end ?? 0);
       setStatus(tr(`Loaded ${cached.entries.length} saved passages · resuming`, `已加载 ${cached.entries.length} 条已保存字幕 · 正在继续`));
       return beginTranscription(selectedFile, resumeAt, modelId);
     }
@@ -515,7 +536,7 @@ export default function EchoScribeWeb() {
       return;
     }
     setProgress(0);
-    const resumeAt = cached ? Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0) : 0;
+    const resumeAt = cached ? Math.max(cached.processedUntil, cached.entries[cached.entries.length - 1]?.end ?? 0) : 0;
     showToast(tr(`Saved model choice · ${model.label}`, `已保存模型选择 · ${displayModel(model.id)}`));
     void beginTranscription(file, resumeAt, nextModelId);
   };
@@ -621,7 +642,7 @@ export default function EchoScribeWeb() {
 
   const selectedModel = getModelOption(selectedModelId);
   const fileKind = file
-    ? `${file.name.split(".").at(-1)?.toUpperCase() ?? "AUDIO"} AUDIO`
+    ? `${file.name.split(".").pop()?.toUpperCase() ?? "AUDIO"} AUDIO`
     : `${selectedModel.language === "ja" ? copy.japanese : copy.english} · ${copy.audioWorkspace}`;
   const modelStateLabel = modelReady ? backend : `${Math.round(modelProgress * 100)}%`;
 
@@ -664,7 +685,7 @@ export default function EchoScribeWeb() {
           </label>
           <button className="solid" disabled={!modelChoiceReady} onClick={() => inputRef.current?.click()}>{copy.openAudio}</button>
         </div>
-        <input ref={inputRef} className="hidden-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm" onChange={handleAudioInput} />
+        <input ref={inputRef} className="hidden-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm,.aif,.aiff,.caf,.mp4" onChange={handleAudioInput} />
       </header>
 
       {modelChoiceReady && !modelReady && (
@@ -755,6 +776,8 @@ export default function EchoScribeWeb() {
             <audio
               ref={audioRef}
               src={audioUrl}
+              preload="metadata"
+              playsInline
               onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
               onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
               onPlay={() => setPlaying(true)}

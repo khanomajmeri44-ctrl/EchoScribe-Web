@@ -13,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     manifest: "/manifest.webmanifest",
-    icons: { icon: "/favicon.ico", shortcut: "/favicon.ico" },
+    icons: { icon: "/favicon.ico", shortcut: "/favicon.ico", apple: "/echoscribe-icon.png" },
     openGraph: { title, description, type: "website", images: [`${origin}/og.png`] },
     twitter: { card: "summary_large_image", title, description, images: [`${origin}/og.png`] },
   };

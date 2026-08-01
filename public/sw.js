@@ -1,5 +1,10 @@
-const CACHE = "echoscribe-shell-v5";
+const CACHE = "echoscribe-shell-v6";
 const SHELL = ["./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
+
+const cacheResponse = (request, response) => {
+  if (!response?.ok) return;
+  caches.open(CACHE).then((cache) => cache.put(request, response.clone())).catch(() => undefined);
+};
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -20,8 +25,7 @@ self.addEventListener("fetch", (event) => {
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        cacheResponse(event.request, response);
         return response;
       }).catch(() => caches.match(event.request)),
     );
@@ -30,8 +34,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.match(event.request).then((cached) =>
       cached ?? fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        cacheResponse(event.request, response);
         return response;
       }),
     ),

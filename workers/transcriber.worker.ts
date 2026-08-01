@@ -24,7 +24,8 @@ let backend = "WASM";
 let activeModelId: ModelId = DEFAULT_MODEL_ID;
 const modelFileProgress = new Map<string, { loaded: number; total: number; progress: number }>();
 
-env.useBrowserCache = true;
+env.useBrowserCache = "caches" in self;
+env.useWasmCache = "caches" in self;
 env.allowRemoteModels = true;
 const wasmOptions = (env as any).backends?.onnx?.wasm;
 if (wasmOptions) {
@@ -51,7 +52,21 @@ async function createWasmPipeline() {
 
 async function createPipeline() {
   const model = getModelOption(activeModelId);
-  const hasWebGpu = "gpu" in navigator;
+  const isSafari = Boolean((env as any).isSafari?.());
+  const safariVersion = Number(navigator.userAgent.match(/Version\/(\d+)/)?.[1] ?? 0);
+  const safariSupportsStableWebGpu = !isSafari || safariVersion >= 26;
+  let hasWebGpu = "gpu" in navigator && safariSupportsStableWebGpu;
+  if ("gpu" in navigator && !safariSupportsStableWebGpu) {
+    send({ type: "model-fallback", message: "Safari compatibility mode · using CPU", modelId: activeModelId });
+  }
+  if (hasWebGpu) {
+    try {
+      const adapter = await (navigator as Navigator & { gpu: { requestAdapter: () => Promise<unknown> } }).gpu.requestAdapter();
+      hasWebGpu = Boolean(adapter);
+    } catch {
+      hasWebGpu = false;
+    }
+  }
   if (hasWebGpu) {
     try {
       const transcriber = await pipeline("automatic-speech-recognition", model.repo, {
