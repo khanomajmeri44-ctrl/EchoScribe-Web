@@ -1,5 +1,5 @@
 const CACHE = "echoscribe-shell-v1";
-const SHELL = ["/", "/manifest.webmanifest", "/echoscribe-icon.png", "/favicon.ico"];
+const SHELL = ["./", "./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

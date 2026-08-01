@@ -199,7 +199,7 @@ export default function EchoScribeWeb() {
   useEffect(() => {
     const savedTheme = localStorage.getItem("echoscribe-theme");
     setDark(savedTheme === "dark");
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js");
+    if ("serviceWorker" in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
     if (navigator.storage?.persist) void navigator.storage.persist();
     createWorker();
     return () => {
@@ -382,7 +382,7 @@ export default function EchoScribeWeb() {
     <div className={dark ? "app dark" : "app"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
       <header className="topbar">
         <div className="brand">
-          <img src="/echoscribe-icon.png" alt="" />
+          <img src={`${import.meta.env.BASE_URL}echoscribe-icon.png`} alt="" />
           <span>EchoScribe</span>
         </div>
         <div className="top-actions">
