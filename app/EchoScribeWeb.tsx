@@ -18,10 +18,12 @@ type WorkerEvent = {
   processedUntil?: number;
   entries?: TranscriptEntry[];
   modelId?: ModelId;
+  phase?: ModelPhase;
 };
 
 type UiLanguage = "en" | "zh";
 type SetupStep = "model" | "language";
+type ModelPhase = "checking" | "downloading" | "loading" | "ready";
 
 const COPY = {
   en: {
@@ -34,6 +36,12 @@ const COPY = {
     japaneseModels: "Japanese models",
     preparingEngine: "Preparing transcription engine",
     loading: "Loading",
+    checkingModel: "Checking model cache",
+    downloadingModel: "Downloading model",
+    loadingModel: "Loading model",
+    checkingHint: "Checking whether the model files are already stored on this device",
+    downloadingHint: "Downloading model files to this browser",
+    loadingHint: "Download complete · loading the model into memory",
     cancelAndChoose: "Cancel and choose another",
     firstTimeSetup: "FIRST-TIME SETUP",
     chooseLevel: "Choose your transcription level",
@@ -91,6 +99,12 @@ const COPY = {
     japaneseModels: "日语模型",
     preparingEngine: "正在准备转写引擎",
     loading: "正在加载",
+    checkingModel: "正在检查模型缓存",
+    downloadingModel: "正在下载模型",
+    loadingModel: "正在加载模型",
+    checkingHint: "正在检查此设备是否已经保存模型文件",
+    downloadingHint: "正在将模型文件下载到当前浏览器",
+    loadingHint: "模型下载完成 · 正在加载到内存",
     cancelAndChoose: "取消并选择其他模型",
     firstTimeSetup: "首次设置",
     chooseLevel: "选择转写语言和性能档位",
@@ -223,6 +237,7 @@ export default function EchoScribeWeb() {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("Open an audio file to begin");
   const [modelProgress, setModelProgress] = useState(0);
+  const [modelPhase, setModelPhase] = useState<ModelPhase>("checking");
   const [modelReady, setModelReady] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<ModelId>(DEFAULT_MODEL_ID);
   const [modelChoiceReady, setModelChoiceReady] = useState(false);
@@ -266,6 +281,7 @@ export default function EchoScribeWeb() {
   };
 
   const createWorker = (modelId: ModelId = selectedModelRef.current) => {
+    setModelPhase("checking");
     const worker = new Worker(new URL("../workers/transcriber.worker.ts", import.meta.url), {
       type: "module",
     });
@@ -305,20 +321,39 @@ export default function EchoScribeWeb() {
     const activeModel = getModelOption(selectedModelRef.current);
     if (message.type === "model-progress") {
       const next = Math.max(0, Math.min(message.progress ?? 0, 1));
+      const nextPhase = message.phase ?? (next >= 1 ? "loading" : "downloading");
       modelProgressRef.current = next;
       setModelProgress(next);
+      setModelPhase(nextPhase);
       if (!modelReady && !activeFileRef.current) {
-        setStatus(next >= 1 ? tr("Initializing transcription engine…", "正在初始化转写引擎…") : tr(`Caching ${activeModel.shortLabel} · ${Math.round(next * 100)}%`, `正在缓存${displayModel(activeModel.id)} · ${Math.round(next * 100)}%`));
+        setStatus(nextPhase === "loading"
+          ? tr(`Loading ${activeModel.shortLabel} into memory…`, `正在将${displayModel(activeModel.id)}加载到内存…`)
+          : tr(`Downloading ${activeModel.shortLabel} · ${Math.round(next * 100)}%`, `正在下载${displayModel(activeModel.id)} · ${Math.round(next * 100)}%`));
+      }
+      return;
+    }
+    if (message.type === "model-phase") {
+      const nextPhase = message.phase ?? "checking";
+      setModelPhase(nextPhase);
+      if (nextPhase === "loading") {
+        modelProgressRef.current = 1;
+        setModelProgress(1);
+      }
+      if (!activeFileRef.current) {
+        setStatus(nextPhase === "checking"
+          ? tr("Checking model cache…", "正在检查模型缓存…")
+          : tr(`Loading ${activeModel.shortLabel} into memory…`, `正在将${displayModel(activeModel.id)}加载到内存…`));
       }
       return;
     }
     if (message.type === "model-runtime") {
-      if (!activeFileRef.current) setStatus(tr(`Initializing ${message.backend ?? "CPU"} runtime…`, `正在初始化 ${message.backend ?? "CPU"} 运行环境…`));
+      setBackend(message.backend ?? "CPU");
       return;
     }
     if (message.type === "model-ready") {
       modelProgressRef.current = 1;
       setModelProgress(1);
+      setModelPhase("ready");
       setModelReady(true);
       setModelChoiceReady(true);
       setModelChooserOpen(false);
@@ -503,7 +538,7 @@ export default function EchoScribeWeb() {
   const completeInitialSetup = (language: UiLanguage) => {
     setUiLanguage(language);
     localStorage.setItem("echoscribe-ui-language", language);
-    setStatus(language === "zh" ? "正在加载所选模型…" : "Loading the selected model…");
+    setStatus(language === "zh" ? "正在检查所选模型的缓存…" : "Checking the selected model cache…");
     void applyModelChoice(pendingModelId);
   };
 
@@ -522,10 +557,11 @@ export default function EchoScribeWeb() {
     setModelReady(false);
     modelProgressRef.current = 0;
     setModelProgress(0);
+    setModelPhase("checking");
     setBackend("Detecting");
     createWorker(nextModelId);
     const model = getModelOption(nextModelId);
-    setStatus(tr(`Loading ${model.label}…`, `正在加载${displayModel(model.id)}…`));
+    setStatus(tr(`Checking ${model.label} cache…`, `正在检查${displayModel(model.id)}的缓存…`));
     if (!file) return;
     const cached = await readTranscript(file, nextModelId);
     replaceEntries(cached?.entries ?? []);
@@ -551,6 +587,7 @@ export default function EchoScribeWeb() {
     setModelReady(false);
     setModelChoiceReady(false);
     setModelProgress(0);
+    setModelPhase("checking");
     modelProgressRef.current = 0;
     setBackend("Detecting");
     setSetupStep("model");
@@ -569,7 +606,11 @@ export default function EchoScribeWeb() {
     setUiLanguage(next);
     localStorage.setItem("echoscribe-ui-language", next);
     if (processing) setStatus(next === "zh" ? "正在实时转写…" : "Transcribing live…");
-    else if (entriesRef.current.length) setStatus(next === "zh" ? `已生成 ${entriesRef.current.length} 条字幕` : `${entriesRef.current.length} passages ready`);
+    else if (modelChoiceReady && !modelReady) {
+      if (modelPhase === "downloading") setStatus(next === "zh" ? `正在下载模型 · ${Math.round(modelProgress * 100)}%` : `Downloading model · ${Math.round(modelProgress * 100)}%`);
+      else if (modelPhase === "loading") setStatus(next === "zh" ? "模型下载完成 · 正在加载到内存…" : "Download complete · loading model into memory…");
+      else setStatus(next === "zh" ? "正在检查模型缓存…" : "Checking model cache…");
+    } else if (entriesRef.current.length) setStatus(next === "zh" ? `已生成 ${entriesRef.current.length} 条字幕` : `${entriesRef.current.length} passages ready`);
     else if (modelReady) setStatus(next === "zh" ? `模型已就绪 · ${backend}` : `Model ready · ${backend}`);
     else setStatus(next === "zh" ? "打开音频文件即可开始" : "Open an audio file to begin");
   };
@@ -644,7 +685,23 @@ export default function EchoScribeWeb() {
   const fileKind = file
     ? `${file.name.split(".").pop()?.toUpperCase() ?? "AUDIO"} AUDIO`
     : `${selectedModel.language === "ja" ? copy.japanese : copy.english} · ${copy.audioWorkspace}`;
-  const modelStateLabel = modelReady ? backend : `${Math.round(modelProgress * 100)}%`;
+  const modelStateLabel = modelReady
+    ? backend
+    : modelPhase === "downloading"
+      ? `↓ ${Math.round(modelProgress * 100)}%`
+      : modelPhase === "loading"
+        ? copy.loadingModel
+        : copy.checkingModel;
+  const modelLoaderTitle = modelPhase === "downloading"
+    ? `${copy.downloadingModel} · ${displayModel(selectedModel.id)}`
+    : modelPhase === "loading"
+      ? `${copy.loadingModel} · ${displayModel(selectedModel.id)}`
+      : copy.checkingModel;
+  const modelLoaderHint = modelPhase === "downloading"
+    ? copy.downloadingHint
+    : modelPhase === "loading"
+      ? copy.loadingHint
+      : copy.checkingHint;
 
   return (
     <div className={dark ? "app dark" : "app"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
@@ -691,10 +748,13 @@ export default function EchoScribeWeb() {
       {modelChoiceReady && !modelReady && (
         <aside className="model-loader" role="status" aria-live="polite">
           <div className="model-loader-copy">
-            <strong>{modelProgress >= 1 ? copy.preparingEngine : `${copy.loading} ${selectedModel.language === "ja" ? copy.japanese : copy.english}`}</strong>
-            <span>{Math.round(modelProgress * 100)}%</span>
+            <strong>{modelLoaderTitle}</strong>
+            <span>{modelPhase === "downloading" ? `${Math.round(modelProgress * 100)}%` : "•••"}</span>
           </div>
-          <div className="model-loader-track" aria-hidden="true"><span style={{ width: `${modelProgress * 100}%` }} /></div>
+          <p className="model-loader-hint">{modelLoaderHint}</p>
+          <div className={modelPhase === "downloading" ? "model-loader-track" : "model-loader-track indeterminate"} aria-hidden="true">
+            <span style={modelPhase === "downloading" ? { width: `${modelProgress * 100}%` } : undefined} />
+          </div>
           <button onClick={cancelModelLoading}>{copy.cancelAndChoose}</button>
         </aside>
       )}

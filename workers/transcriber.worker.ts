@@ -22,7 +22,6 @@ const CHUNK_SECONDS = 28;
 let transcriberPromise: Promise<any> | null = null;
 let backend = "WASM";
 let activeModelId: ModelId = DEFAULT_MODEL_ID;
-const modelFileProgress = new Map<string, { loaded: number; total: number; progress: number }>();
 
 env.useBrowserCache = "caches" in self;
 env.useWasmCache = "caches" in self;
@@ -40,6 +39,7 @@ function send(message: Record<string, unknown>) {
 
 async function createWasmPipeline() {
   const model = getModelOption(activeModelId);
+  send({ type: "model-phase", phase: "checking", modelId: activeModelId });
   send({ type: "model-runtime", backend: "WASM", modelId: activeModelId });
   const transcriber = await pipeline("automatic-speech-recognition", model.repo, {
     device: "wasm",
@@ -69,6 +69,7 @@ async function createPipeline() {
   }
   if (hasWebGpu) {
     try {
+      send({ type: "model-phase", phase: "checking", modelId: activeModelId });
       const transcriber = await pipeline("automatic-speech-recognition", model.repo, {
         device: "webgpu",
         dtype: { encoder_model: "q4", decoder_model_merged: "q4" },
@@ -84,25 +85,19 @@ async function createPipeline() {
 }
 
 function reportModelProgress(event: any) {
-  const file = typeof event?.file === "string" ? event.file : String(modelFileProgress.size);
-  const progress = typeof event?.progress === "number" ? event.progress / 100 : event?.status === "done" ? 1 : 0;
-  modelFileProgress.set(file, {
-    loaded: typeof event?.loaded === "number" ? event.loaded : 0,
-    total: typeof event?.total === "number" ? event.total : 0,
-    progress: Math.max(0, Math.min(progress, 1)),
-  });
-  const files = [...modelFileProgress.values()];
-  const totalBytes = files.reduce((sum, item) => sum + item.total, 0);
-  const loadedBytes = files.reduce((sum, item) => sum + Math.min(item.loaded, item.total || item.loaded), 0);
-  const aggregate = totalBytes > 0
-    ? loadedBytes / totalBytes
-    : files.reduce((sum, item) => sum + item.progress, 0) / Math.max(files.length, 1);
+  if (event?.status === "ready") {
+    send({ type: "model-phase", phase: "loading", modelId: activeModelId });
+    return;
+  }
+  if (event?.status !== "progress_total") return;
+  const progress = Math.max(0, Math.min((event.progress ?? 0) / 100, 1));
   send({
     type: "model-progress",
     modelId: activeModelId,
-    progress: Math.max(0, Math.min(aggregate, 1)),
-    file,
-    status: event?.status ?? "loading",
+    progress,
+    phase: progress >= 0.999 ? "loading" : "downloading",
+    loaded: event.loaded ?? 0,
+    total: event.total ?? 0,
   });
 }
 
@@ -240,7 +235,6 @@ self.onmessage = async (event: MessageEvent) => {
         transcriberPromise = null;
         activeModelId = requestedModel.id;
         backend = "WASM";
-        modelFileProgress.clear();
       }
       await getTranscriber();
     }
