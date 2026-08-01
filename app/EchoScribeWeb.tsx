@@ -147,7 +147,13 @@ export default function EchoScribeWeb() {
       const next = Math.max(modelProgressRef.current, message.progress ?? 0);
       modelProgressRef.current = next;
       setModelProgress(next);
-      if (!modelReady) setStatus(`Caching tiny.en model · ${Math.round(next * 100)}%`);
+      if (!modelReady && !activeFileRef.current) {
+        setStatus(next >= 1 ? "Initializing transcription engine…" : `Caching tiny.en model · ${Math.round(next * 100)}%`);
+      }
+      return;
+    }
+    if (message.type === "model-runtime") {
+      if (!activeFileRef.current) setStatus(`Initializing ${message.backend ?? "CPU"} runtime…`);
       return;
     }
     if (message.type === "model-ready") {
@@ -162,7 +168,22 @@ export default function EchoScribeWeb() {
       setStatus(message.message ?? "Switching to CPU mode");
       return;
     }
+    if (message.type === "error" && !message.jobId) {
+      setModelReady(false);
+      setStatus(`Model initialization failed · ${message.message ?? "Unknown error"}`);
+      showToast("Model initialization failed. Reload to retry.");
+      return;
+    }
     if (!message.jobId || message.jobId !== activeJobRef.current) return;
+    if (message.type === "job-accepted") {
+      setStatus(modelReady ? "Starting English transcription…" : "Audio ready · waiting for model initialization…");
+      return;
+    }
+    if (message.type === "job-started") {
+      setBackend(message.backend ?? backend);
+      setStatus(`Transcribing live · ${message.backend ?? backend}`);
+      return;
+    }
     if (message.type === "partial") {
       const merged = mergeEntries(entriesRef.current, message.entries ?? []);
       replaceEntries(merged);
@@ -224,6 +245,7 @@ export default function EchoScribeWeb() {
       const worker = ensureWorker();
       return await new Promise<boolean>((resolve) => {
         resolveJobRef.current = resolve;
+        setStatus(modelReady ? "Starting English transcription…" : "Audio decoded · waiting for model initialization…");
         worker.postMessage(
           { type: "transcribe", jobId, audio: samples, resumeAt },
           [samples.buffer],

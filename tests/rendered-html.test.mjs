@@ -16,6 +16,8 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.match(app, /Open audio/);
   assert.match(app, /Your audio never leaves this device/);
   assert.match(worker, /onnx-community\/whisper-tiny\.en/);
+  assert.match(worker, /return_timestamps:\s*true/);
+  assert.doesNotMatch(worker, /language:\s*"english"|task:\s*"transcribe"|dtype:\s*"q8"/);
   assert.doesNotMatch(worker, /whisper-(small|medium|large)/);
   assert.equal(JSON.parse(manifest).name, "EchoScribe");
 });
