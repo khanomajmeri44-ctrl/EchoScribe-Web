@@ -85,6 +85,8 @@ export default function EchoScribeWeb() {
   const [modelProgress, setModelProgress] = useState(0);
   const [modelReady, setModelReady] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<ModelId>(DEFAULT_MODEL_ID);
+  const [modelChoiceReady, setModelChoiceReady] = useState(false);
+  const [modelChooserOpen, setModelChooserOpen] = useState(false);
   const [backend, setBackend] = useState("Detecting");
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -158,7 +160,7 @@ export default function EchoScribeWeb() {
     if (message.modelId && message.modelId !== selectedModelRef.current) return;
     const activeModel = getModelOption(selectedModelRef.current);
     if (message.type === "model-progress") {
-      const next = Math.max(modelProgressRef.current, message.progress ?? 0);
+      const next = Math.max(0, Math.min(message.progress ?? 0, 1));
       modelProgressRef.current = next;
       setModelProgress(next);
       if (!modelReady && !activeFileRef.current) {
@@ -174,6 +176,8 @@ export default function EchoScribeWeb() {
       modelProgressRef.current = 1;
       setModelProgress(1);
       setModelReady(true);
+      setModelChoiceReady(true);
+      setModelChooserOpen(false);
       setBackend(message.backend ?? "WASM");
       if (!activeFileRef.current) setStatus(`${activeModel.shortLabel} ready · ${message.backend ?? "WASM"}`);
       return;
@@ -235,12 +239,19 @@ export default function EchoScribeWeb() {
     const savedTheme = localStorage.getItem("echoscribe-theme");
     setDark(savedTheme === "dark");
     const savedModel = localStorage.getItem("echoscribe-model");
-    const initialModel = isModelId(savedModel) ? savedModel : DEFAULT_MODEL_ID;
-    selectedModelRef.current = initialModel;
-    setSelectedModelId(initialModel);
+    const initialModel = isModelId(savedModel) ? savedModel : null;
     if ("serviceWorker" in navigator) void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
     if (navigator.storage?.persist) void navigator.storage.persist();
-    createWorker(initialModel);
+    if (initialModel) {
+      selectedModelRef.current = initialModel;
+      setSelectedModelId(initialModel);
+      setModelChoiceReady(true);
+      createWorker(initialModel);
+    } else {
+      setModelChoiceReady(false);
+      setModelChooserOpen(true);
+      setStatus("Choose a language and performance level to begin");
+    }
     return () => {
       workerRef.current?.terminate();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -279,6 +290,11 @@ export default function EchoScribeWeb() {
   };
 
   const openAudio = async (selectedFile: File, batchMode = false, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
+    if (!modelChoiceReady) {
+      setModelChooserOpen(true);
+      showToast("Choose a transcription model first");
+      return false;
+    }
     if (!selectedFile.type.startsWith("audio/") && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm)$/i.test(selectedFile.name)) {
       showToast("Choose a supported audio file");
       return false;
@@ -343,12 +359,17 @@ export default function EchoScribeWeb() {
     void beginTranscription(file, 0, modelId);
   };
 
-  const handleModelChange = async (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextModelId = event.target.value as ModelId;
-    if (!isModelId(nextModelId) || nextModelId === selectedModelRef.current) return;
+  const applyModelChoice = async (nextModelId: ModelId) => {
+    if (!isModelId(nextModelId)) return;
+    if (nextModelId === selectedModelRef.current && (workerRef.current || modelReady)) {
+      setModelChooserOpen(false);
+      return;
+    }
     stopCurrentJob(false);
     selectedModelRef.current = nextModelId;
     setSelectedModelId(nextModelId);
+    setModelChoiceReady(true);
+    setModelChooserOpen(false);
     localStorage.setItem("echoscribe-model", nextModelId);
     setModelReady(false);
     modelProgressRef.current = 0;
@@ -370,6 +391,22 @@ export default function EchoScribeWeb() {
     const resumeAt = cached ? Math.max(cached.processedUntil, cached.entries.at(-1)?.end ?? 0) : 0;
     showToast(`Saved model choice · ${model.label}`);
     void beginTranscription(file, resumeAt, nextModelId);
+  };
+
+  const handleModelChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    void applyModelChoice(event.target.value as ModelId);
+  };
+
+  const cancelModelLoading = () => {
+    stopCurrentJob(false);
+    localStorage.removeItem("echoscribe-model");
+    setModelReady(false);
+    setModelChoiceReady(false);
+    setModelProgress(0);
+    modelProgressRef.current = 0;
+    setBackend("Detecting");
+    setModelChooserOpen(true);
+    setStatus("Model loading cancelled · choose another option");
   };
 
   const toggleTheme = () => {
@@ -456,12 +493,12 @@ export default function EchoScribeWeb() {
           <span>EchoScribe</span>
         </div>
         <div className="top-actions">
-          <button className="quiet batch-button" disabled={processing || batchProcessing} onClick={() => batchInputRef.current?.click()}>
+          <button className="quiet batch-button" disabled={!modelChoiceReady || processing || batchProcessing} onClick={() => batchInputRef.current?.click()}>
             {batchProcessing ? `Batch ${Math.round(batchProgress * 100)}%` : "Batch scan"}
             {batchProcessing && <span className="button-progress" style={{ width: `${batchProgress * 100}%` }} />}
           </button>
           <button className="quiet" onClick={toggleTheme}>{dark ? "Light" : "Dark"}</button>
-          <button className="quiet" disabled={!file || batchProcessing} onClick={() => void regenerate()}>Regenerate</button>
+          <button className="quiet" disabled={!modelChoiceReady || !file || batchProcessing} onClick={() => void regenerate()}>Regenerate</button>
           <label className="model-pill">
             <select aria-label="Transcription model" value={selectedModelId} disabled={batchProcessing} onChange={(event) => void handleModelChange(event)}>
               <optgroup label="English models">
@@ -478,11 +515,51 @@ export default function EchoScribeWeb() {
             <span className="model-state">{modelStateLabel}</span>
             <span className="model-dot" />
           </label>
-          <button className="solid" onClick={() => inputRef.current?.click()}>Open audio</button>
+          <button className="solid" disabled={!modelChoiceReady} onClick={() => inputRef.current?.click()}>Open audio</button>
         </div>
         <input ref={inputRef} className="hidden-input" type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm" onChange={handleAudioInput} />
         <input ref={batchInputRef} className="hidden-input" type="file" multiple accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.webm" onChange={(event) => void handleBatchInput(event)} />
       </header>
+
+      {modelChoiceReady && !modelReady && (
+        <aside className="model-loader" role="status" aria-live="polite">
+          <div className="model-loader-copy">
+            <strong>{modelProgress >= 1 ? "Preparing transcription engine" : `Loading ${selectedModel.label}`}</strong>
+            <span>{Math.round(modelProgress * 100)}%</span>
+          </div>
+          <div className="model-loader-track" aria-hidden="true"><span style={{ width: `${modelProgress * 100}%` }} /></div>
+          <button onClick={cancelModelLoading}>Cancel and choose another</button>
+        </aside>
+      )}
+
+      {modelChooserOpen && (
+        <div className="model-dialog-backdrop" role="presentation">
+          <section className="model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-dialog-title">
+            <div className="model-dialog-heading">
+              <div>
+                <div className="eyebrow">FIRST-TIME SETUP</div>
+                <h2 id="model-dialog-title">Choose your transcription level</h2>
+              </div>
+              <p>Your choice is saved on this device. You can change it at any time.</p>
+            </div>
+            {(["en", "ja"] as const).map((language) => (
+              <div className="model-language-group" key={language}>
+                <h3>{language === "en" ? "English" : "日本語"}</h3>
+                <div className="model-choice-grid">
+                  {MODEL_OPTIONS.filter((model) => model.language === language).map((model, index) => (
+                    <button key={model.id} className="model-choice" onClick={() => void applyModelChoice(model.id)}>
+                      <span className="model-choice-top"><strong>{model.label.split(" · ").at(-1)}</strong>{index === 0 && <em>Recommended</em>}</span>
+                      <span>{model.tier}</span>
+                      <small>{model.recommendation}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <p className="model-dialog-note">Higher levels improve difficult audio but require more memory and a longer first download.</p>
+          </section>
+        </div>
+      )}
 
       <main className="workspace">
         <section className="player-card">

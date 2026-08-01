@@ -21,6 +21,9 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.match(models, /onnx-community\/whisper-tiny"/);
   assert.match(models, /onnx-community\/whisper-small"/);
   assert.match(app, /echoscribe-model/);
+  assert.match(app, /FIRST-TIME SETUP/);
+  assert.match(app, /Cancel and choose another/);
+  assert.match(app, /model-loader-track/);
   assert.match(worker, /return_timestamps:\s*true/);
   assert.doesNotMatch(worker, /language:\s*"english"|task:\s*"transcribe"|dtype:\s*"q8"/);
   assert.doesNotMatch(worker, /whisper-(small|medium|large)/);

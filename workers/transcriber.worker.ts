@@ -22,6 +22,7 @@ const CHUNK_SECONDS = 28;
 let transcriberPromise: Promise<any> | null = null;
 let backend = "WASM";
 let activeModelId: ModelId = DEFAULT_MODEL_ID;
+const modelFileProgress = new Map<string, { loaded: number; total: number; progress: number }>();
 
 env.useBrowserCache = true;
 env.allowRemoteModels = true;
@@ -68,12 +69,24 @@ async function createPipeline() {
 }
 
 function reportModelProgress(event: any) {
-  const progress = typeof event?.progress === "number" ? event.progress / 100 : 0;
+  const file = typeof event?.file === "string" ? event.file : String(modelFileProgress.size);
+  const progress = typeof event?.progress === "number" ? event.progress / 100 : event?.status === "done" ? 1 : 0;
+  modelFileProgress.set(file, {
+    loaded: typeof event?.loaded === "number" ? event.loaded : 0,
+    total: typeof event?.total === "number" ? event.total : 0,
+    progress: Math.max(0, Math.min(progress, 1)),
+  });
+  const files = [...modelFileProgress.values()];
+  const totalBytes = files.reduce((sum, item) => sum + item.total, 0);
+  const loadedBytes = files.reduce((sum, item) => sum + Math.min(item.loaded, item.total || item.loaded), 0);
+  const aggregate = totalBytes > 0
+    ? loadedBytes / totalBytes
+    : files.reduce((sum, item) => sum + item.progress, 0) / Math.max(files.length, 1);
   send({
     type: "model-progress",
     modelId: activeModelId,
-    progress: Math.max(0, Math.min(progress, 1)),
-    file: typeof event?.file === "string" ? event.file : "",
+    progress: Math.max(0, Math.min(aggregate, 1)),
+    file,
     status: event?.status ?? "loading",
   });
 }
@@ -212,6 +225,7 @@ self.onmessage = async (event: MessageEvent) => {
         transcriberPromise = null;
         activeModelId = requestedModel.id;
         backend = "WASM";
+        modelFileProgress.clear();
       }
       await getTranscriber();
     }
