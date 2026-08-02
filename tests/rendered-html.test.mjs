@@ -45,6 +45,11 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.match(app, /formatDuration/);
   assert.match(app, /预计等待/);
   assert.match(worker, /progress_total/);
+  assert.match(worker, /ModelRegistry\.is_pipeline_cached/);
+  assert.match(worker, /fullyCached \? \{\} : \{ progress_callback: reportModelProgress \}/);
+  assert.match(app, /echoscribe-model-cache-v1:/);
+  assert.match(app, /preferCached: hasCompletedModelCache/);
+  assert.match(app, /Connecting to model server/);
   assert.match(worker, /model-phase/);
   assert.match(worker, /return_timestamps:\s*true/);
   assert.match(worker, /Safari compatibility mode/);

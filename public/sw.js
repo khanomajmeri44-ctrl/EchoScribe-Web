@@ -1,4 +1,5 @@
-const CACHE = "echoscribe-shell-v8";
+const SHELL_CACHE_PREFIX = "echoscribe-shell-";
+const CACHE = `${SHELL_CACHE_PREFIX}v9`;
 const SHELL = ["./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
 
 const cacheResponse = (request, response) => {
@@ -14,7 +15,11 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))),
+      Promise.all(
+        keys
+          .filter((key) => key.startsWith(SHELL_CACHE_PREFIX) && key !== CACHE)
+          .map((key) => caches.delete(key)),
+      ),
     ),
   );
   self.clients.claim();

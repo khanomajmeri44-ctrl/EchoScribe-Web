@@ -1,4 +1,4 @@
-import { env, pipeline } from "@huggingface/transformers";
+import { env, ModelRegistry, pipeline } from "@huggingface/transformers";
 import { DEFAULT_MODEL_ID, getModelOption, type ModelId } from "../lib/models";
 
 type WordChunk = {
@@ -22,6 +22,9 @@ const CHUNK_SECONDS = 28;
 let transcriberPromise: Promise<any> | null = null;
 let backend = "WASM";
 let activeModelId: ModelId = DEFAULT_MODEL_ID;
+let preferCachedModel = false;
+
+const MODEL_DTYPE = { encoder_model: "q4", decoder_model_merged: "q4" } as const;
 
 env.useBrowserCache = "caches" in self;
 env.useWasmCache = "caches" in self;
@@ -37,21 +40,41 @@ function send(message: Record<string, unknown>) {
   self.postMessage(message);
 }
 
-async function createWasmPipeline() {
+async function loadPipeline(device: "wasm" | "webgpu") {
   const model = getModelOption(activeModelId);
   send({ type: "model-phase", phase: "checking", modelId: activeModelId });
-  send({ type: "model-runtime", backend: "WASM", modelId: activeModelId });
-  const transcriber = await pipeline("automatic-speech-recognition", model.repo, {
-    device: "wasm",
-    dtype: { encoder_model: "q4", decoder_model_merged: "q4" },
-    progress_callback: reportModelProgress,
+  let fullyCached = false;
+  if (preferCachedModel) {
+    try {
+      fullyCached = await ModelRegistry.is_pipeline_cached("automatic-speech-recognition", model.repo, {
+        device,
+        dtype: MODEL_DTYPE,
+      });
+    } catch {
+      fullyCached = false;
+    }
+  }
+  send({
+    type: "model-phase",
+    phase: fullyCached ? "loading" : "connecting",
+    source: fullyCached ? "cache" : "remote",
+    modelId: activeModelId,
   });
+  return pipeline("automatic-speech-recognition", model.repo, {
+    device,
+    dtype: MODEL_DTYPE,
+    ...(fullyCached ? {} : { progress_callback: reportModelProgress }),
+  });
+}
+
+async function createWasmPipeline() {
+  send({ type: "model-runtime", backend: "WASM", modelId: activeModelId });
+  const transcriber = await loadPipeline("wasm");
   backend = "WASM";
   return transcriber;
 }
 
 async function createPipeline() {
-  const model = getModelOption(activeModelId);
   const isSafari = Boolean((env as any).isSafari?.());
   const safariVersion = Number(navigator.userAgent.match(/Version\/(\d+)/)?.[1] ?? 0);
   const safariSupportsStableWebGpu = !isSafari || safariVersion >= 26;
@@ -69,12 +92,8 @@ async function createPipeline() {
   }
   if (hasWebGpu) {
     try {
-      send({ type: "model-phase", phase: "checking", modelId: activeModelId });
-      const transcriber = await pipeline("automatic-speech-recognition", model.repo, {
-        device: "webgpu",
-        dtype: { encoder_model: "q4", decoder_model_merged: "q4" },
-        progress_callback: reportModelProgress,
-      });
+      send({ type: "model-runtime", backend: "WebGPU", modelId: activeModelId });
+      const transcriber = await loadPipeline("webgpu");
       backend = "WebGPU";
       return transcriber;
     } catch {
@@ -229,6 +248,7 @@ self.onmessage = async (event: MessageEvent) => {
   try {
     if (message.type === "load") {
       const requestedModel = getModelOption(message.modelId ?? DEFAULT_MODEL_ID);
+      preferCachedModel = message.preferCached === true;
       if (requestedModel.id !== activeModelId) {
         const previous = transcriberPromise ? await transcriberPromise.catch(() => null) : null;
         await previous?.dispose?.();

@@ -25,7 +25,7 @@ type WorkerEvent = {
 
 type UiLanguage = "en" | "zh";
 type SetupStep = "model" | "language";
-type ModelPhase = "checking" | "downloading" | "loading" | "ready";
+type ModelPhase = "checking" | "connecting" | "downloading" | "loading" | "ready";
 type DownloadStats = { loaded: number; total: number; speed: number; eta: number | null };
 
 const COPY = {
@@ -172,6 +172,22 @@ const WAVEFORM = [
   63, 41, 29, 57, 46, 31, 51, 37, 23, 44, 55, 35, 18,
 ];
 
+const MODEL_CACHE_MARKER_PREFIX = "echoscribe-model-cache-v1:";
+
+function hasCompletedModelCache(modelId: ModelId): boolean {
+  try {
+    return localStorage.getItem(`${MODEL_CACHE_MARKER_PREFIX}${modelId}`) === "complete";
+  } catch {
+    return false;
+  }
+}
+
+function markModelCacheComplete(modelId: ModelId): void {
+  try {
+    localStorage.setItem(`${MODEL_CACHE_MARKER_PREFIX}${modelId}`, "complete");
+  } catch {}
+}
+
 function formatTime(seconds: number): string {
   const safe = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
   const hours = Math.floor(safe / 3600);
@@ -316,7 +332,7 @@ export default function EchoScribeWeb() {
       type: "module",
     });
     worker.onmessage = (event) => workerHandlerRef.current(event);
-    worker.postMessage({ type: "load", modelId });
+    worker.postMessage({ type: "load", modelId, preferCached: hasCompletedModelCache(modelId) });
     workerRef.current = worker;
     workerModelRef.current = modelId;
     return worker;
@@ -410,6 +426,7 @@ export default function EchoScribeWeb() {
       return;
     }
     if (message.type === "model-ready") {
+      markModelCacheComplete(selectedModelRef.current);
       modelProgressRef.current = 1;
       setModelProgress(1);
       setModelPhase("ready");
@@ -750,16 +767,22 @@ export default function EchoScribeWeb() {
       ? `↓ ${Math.round(modelProgress * 100)}%`
       : modelPhase === "loading"
         ? copy.loadingModel
+        : modelPhase === "connecting"
+          ? tr("Connecting", "正在连接")
         : copy.checkingModel;
   const modelLoaderTitle = modelPhase === "downloading"
     ? `${copy.downloadingModel} · ${displayModel(selectedModel.id)}`
     : modelPhase === "loading"
       ? `${copy.loadingModel} · ${displayModel(selectedModel.id)}`
+      : modelPhase === "connecting"
+        ? tr("Connecting to model server", "正在连接模型服务器")
       : copy.checkingModel;
   const modelLoaderHint = modelPhase === "downloading"
     ? copy.downloadingHint
     : modelPhase === "loading"
       ? copy.loadingHint
+      : modelPhase === "connecting"
+        ? tr("Checking which model files need to be downloaded", "正在检查需要下载的模型文件")
       : copy.checkingHint;
   const downloadedSizeLabel = downloadStats.total > 0
     ? `${formatBytes(downloadStats.loaded)} / ${formatBytes(downloadStats.total)}`
