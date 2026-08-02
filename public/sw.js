@@ -1,4 +1,4 @@
-const CACHE = "echoscribe-shell-v7";
+const CACHE = "echoscribe-shell-v8";
 const SHELL = ["./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
 
 const cacheResponse = (request, response) => {

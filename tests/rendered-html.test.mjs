@@ -39,6 +39,11 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.match(app, /正在下载模型/);
   assert.match(app, /正在加载模型/);
   assert.match(app, /modelPhase/);
+  assert.match(app, /model-download-stats/);
+  assert.match(app, /downloadStats/);
+  assert.match(app, /formatBytes/);
+  assert.match(app, /formatDuration/);
+  assert.match(app, /预计等待/);
   assert.match(worker, /progress_total/);
   assert.match(worker, /model-phase/);
   assert.match(worker, /return_timestamps:\s*true/);

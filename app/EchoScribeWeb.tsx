@@ -19,11 +19,14 @@ type WorkerEvent = {
   entries?: TranscriptEntry[];
   modelId?: ModelId;
   phase?: ModelPhase;
+  loaded?: number;
+  total?: number;
 };
 
 type UiLanguage = "en" | "zh";
 type SetupStep = "model" | "language";
 type ModelPhase = "checking" | "downloading" | "loading" | "ready";
+type DownloadStats = { loaded: number; total: number; speed: number; eta: number | null };
 
 const COPY = {
   en: {
@@ -42,6 +45,11 @@ const COPY = {
     checkingHint: "Checking whether the model files are already stored on this device",
     downloadingHint: "Downloading model files to this browser",
     loadingHint: "Download complete · loading the model into memory",
+    downloadedSize: "Downloaded",
+    downloadSpeed: "Speed",
+    waitingTime: "Time left",
+    calculating: "Calculating",
+    downloadComplete: "Complete",
     cancelAndChoose: "Cancel and choose another",
     firstTimeSetup: "FIRST-TIME SETUP",
     chooseLevel: "Choose your transcription level",
@@ -105,6 +113,11 @@ const COPY = {
     checkingHint: "正在检查此设备是否已经保存模型文件",
     downloadingHint: "正在将模型文件下载到当前浏览器",
     loadingHint: "模型下载完成 · 正在加载到内存",
+    downloadedSize: "文件大小",
+    downloadSpeed: "下载速度",
+    waitingTime: "预计等待",
+    calculating: "计算中",
+    downloadComplete: "已完成",
     cancelAndChoose: "取消并选择其他模型",
     firstTimeSetup: "首次设置",
     chooseLevel: "选择转写语言和性能档位",
@@ -167,6 +180,19 @@ function formatTime(seconds: number): string {
   return hours
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
     : `${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 1024 * 100 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 1024 * 1024 * 100 ? 1 : 0)} MB`;
+}
+
+function formatDuration(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds < 60) return `${Math.max(1, Math.ceil(seconds))}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.ceil(seconds % 60)}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.ceil((seconds % 3600) / 60)}m`;
 }
 
 function mergeEntries(current: TranscriptEntry[], incoming: TranscriptEntry[]): TranscriptEntry[] {
@@ -238,6 +264,7 @@ export default function EchoScribeWeb() {
   const [status, setStatus] = useState("Open an audio file to begin");
   const [modelProgress, setModelProgress] = useState(0);
   const [modelPhase, setModelPhase] = useState<ModelPhase>("checking");
+  const [downloadStats, setDownloadStats] = useState<DownloadStats>({ loaded: 0, total: 0, speed: 0, eta: null });
   const [modelReady, setModelReady] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<ModelId>(DEFAULT_MODEL_ID);
   const [modelChoiceReady, setModelChoiceReady] = useState(false);
@@ -261,6 +288,7 @@ export default function EchoScribeWeb() {
   const selectedModelRef = useRef<ModelId>(DEFAULT_MODEL_ID);
   const workerModelRef = useRef<ModelId | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const downloadSampleRef = useRef({ loaded: 0, measuredAt: 0, speed: 0, renderedAt: 0 });
   const copy = COPY[uiLanguage];
   const tr = (english: string, chinese: string) => uiLanguage === "zh" ? chinese : english;
   const displayModel = (modelId: ModelId) => {
@@ -282,6 +310,8 @@ export default function EchoScribeWeb() {
 
   const createWorker = (modelId: ModelId = selectedModelRef.current) => {
     setModelPhase("checking");
+    setDownloadStats({ loaded: 0, total: 0, speed: 0, eta: null });
+    downloadSampleRef.current = { loaded: 0, measuredAt: performance.now(), speed: 0, renderedAt: 0 };
     const worker = new Worker(new URL("../workers/transcriber.worker.ts", import.meta.url), {
       type: "module",
     });
@@ -325,6 +355,31 @@ export default function EchoScribeWeb() {
       modelProgressRef.current = next;
       setModelProgress(next);
       setModelPhase(nextPhase);
+      const loaded = Math.max(0, message.loaded ?? 0);
+      const total = Math.max(0, message.total ?? 0);
+      const now = performance.now();
+      const previous = downloadSampleRef.current;
+      const elapsedSeconds = Math.max(0, (now - previous.measuredAt) / 1000);
+      let speed = previous.speed;
+      let measuredLoaded = previous.loaded;
+      let measuredAt = previous.measuredAt;
+      if (loaded < previous.loaded) {
+        speed = 0;
+        measuredLoaded = loaded;
+        measuredAt = now;
+      }
+      else if (elapsedSeconds >= 0.2 && loaded > previous.loaded) {
+        const instantSpeed = (loaded - previous.loaded) / elapsedSeconds;
+        speed = previous.speed > 0 ? previous.speed * 0.72 + instantSpeed * 0.28 : instantSpeed;
+        measuredLoaded = loaded;
+        measuredAt = now;
+      }
+      const eta = speed > 0 && total > loaded ? (total - loaded) / speed : next >= 1 ? 0 : null;
+      downloadSampleRef.current = { loaded: measuredLoaded, measuredAt, speed, renderedAt: previous.renderedAt };
+      if (now - previous.renderedAt >= 250 || next >= 1) {
+        setDownloadStats({ loaded, total, speed, eta });
+        downloadSampleRef.current.renderedAt = now;
+      }
       if (!modelReady && !activeFileRef.current) {
         setStatus(nextPhase === "loading"
           ? tr(`Loading ${activeModel.shortLabel} into memory…`, `正在将${displayModel(activeModel.id)}加载到内存…`)
@@ -338,6 +393,10 @@ export default function EchoScribeWeb() {
       if (nextPhase === "loading") {
         modelProgressRef.current = 1;
         setModelProgress(1);
+      }
+      if (nextPhase === "checking") {
+        setDownloadStats({ loaded: 0, total: 0, speed: 0, eta: null });
+        downloadSampleRef.current = { loaded: 0, measuredAt: performance.now(), speed: 0, renderedAt: 0 };
       }
       if (!activeFileRef.current) {
         setStatus(nextPhase === "checking"
@@ -702,6 +761,17 @@ export default function EchoScribeWeb() {
     : modelPhase === "loading"
       ? copy.loadingHint
       : copy.checkingHint;
+  const downloadedSizeLabel = downloadStats.total > 0
+    ? `${formatBytes(downloadStats.loaded)} / ${formatBytes(downloadStats.total)}`
+    : "—";
+  const downloadSpeedLabel = modelPhase === "downloading" && downloadStats.speed > 0
+    ? `${formatBytes(downloadStats.speed)}/s`
+    : "—";
+  const waitingTimeLabel = modelPhase === "loading" || modelPhase === "ready"
+    ? copy.downloadComplete
+    : downloadStats.eta === null
+      ? copy.calculating
+      : formatDuration(downloadStats.eta);
 
   return (
     <div className={dark ? "app dark" : "app"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
@@ -754,6 +824,11 @@ export default function EchoScribeWeb() {
           <p className="model-loader-hint">{modelLoaderHint}</p>
           <div className={modelPhase === "downloading" ? "model-loader-track" : "model-loader-track indeterminate"} aria-hidden="true">
             <span style={modelPhase === "downloading" ? { width: `${modelProgress * 100}%` } : undefined} />
+          </div>
+          <div className="model-download-stats">
+            <div><span>{copy.downloadedSize}</span><strong>{downloadedSizeLabel}</strong></div>
+            <div><span>{copy.downloadSpeed}</span><strong>{downloadSpeedLabel}</strong></div>
+            <div><span>{copy.waitingTime}</span><strong>{waitingTimeLabel}</strong></div>
           </div>
           <button onClick={cancelModelLoading}>{copy.cancelAndChoose}</button>
         </aside>

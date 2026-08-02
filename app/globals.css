@@ -271,6 +271,39 @@ button {
   to { transform: translateX(310%); }
 }
 
+.model-download-stats {
+  margin-top: 11px;
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 8px;
+}
+
+.model-download-stats div {
+  min-width: 0;
+  padding: 8px 9px;
+  border-radius: 7px;
+  background: var(--surface-alt);
+}
+
+.model-download-stats span,
+.model-download-stats strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-download-stats span {
+  margin-bottom: 4px;
+  color: var(--secondary);
+  font-size: 9px;
+}
+
+.model-download-stats strong {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .model-loader button {
   margin-top: 11px;
   padding: 0;
