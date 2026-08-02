@@ -46,7 +46,11 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.match(app, /预计等待/);
   assert.match(worker, /progress_total/);
   assert.match(worker, /ModelRegistry\.is_pipeline_cached/);
-  assert.match(worker, /fullyCached \? \{\} : \{ progress_callback: reportModelProgress \}/);
+  assert.match(worker, /PRIMARY_MODEL_HOST = "https:\/\/hf-mirror\.com\/"/);
+  assert.match(worker, /FALLBACK_MODEL_HOST = "https:\/\/huggingface\.co\/"/);
+  assert.match(worker, /for \(const host of \[PRIMARY_MODEL_HOST, FALLBACK_MODEL_HOST\]\)/);
+  assert.match(worker, /Domestic mirror unavailable/);
+  assert.match(worker, /if \(!cachedHost\) return downloadPipeline\(device\)/);
   assert.match(app, /echoscribe-model-cache-v1:/);
   assert.match(app, /preferCached: hasCompletedModelCache/);
   assert.match(app, /Connecting to model server/);

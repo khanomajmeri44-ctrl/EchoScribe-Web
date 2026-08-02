@@ -19,6 +19,8 @@ type PipelineOutput = {
 
 const SAMPLE_RATE = 16000;
 const CHUNK_SECONDS = 28;
+const PRIMARY_MODEL_HOST = "https://hf-mirror.com/";
+const FALLBACK_MODEL_HOST = "https://huggingface.co/";
 let transcriberPromise: Promise<any> | null = null;
 let backend = "WASM";
 let activeModelId: ModelId = DEFAULT_MODEL_ID;
@@ -29,6 +31,7 @@ const MODEL_DTYPE = { encoder_model: "q4", decoder_model_merged: "q4" } as const
 env.useBrowserCache = "caches" in self;
 env.useWasmCache = "caches" in self;
 env.allowRemoteModels = true;
+env.remoteHost = PRIMARY_MODEL_HOST;
 const wasmOptions = (env as any).backends?.onnx?.wasm;
 if (wasmOptions) {
   wasmOptions.numThreads = self.crossOriginIsolated
@@ -40,31 +43,62 @@ function send(message: Record<string, unknown>) {
   self.postMessage(message);
 }
 
-async function loadPipeline(device: "wasm" | "webgpu") {
-  const model = getModelOption(activeModelId);
-  send({ type: "model-phase", phase: "checking", modelId: activeModelId });
-  let fullyCached = false;
-  if (preferCachedModel) {
+function isMirrorTransportError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("hf-mirror.com") || /failed to fetch|networkerror|network request failed|load failed/i.test(message);
+}
+
+async function findCachedModelHost(device: "wasm" | "webgpu"): Promise<string | null> {
+  if (!preferCachedModel) return null;
+  for (const host of [PRIMARY_MODEL_HOST, FALLBACK_MODEL_HOST]) {
+    env.remoteHost = host;
     try {
-      fullyCached = await ModelRegistry.is_pipeline_cached("automatic-speech-recognition", model.repo, {
+      const cached = await ModelRegistry.is_pipeline_cached("automatic-speech-recognition", getModelOption(activeModelId).repo, {
         device,
         dtype: MODEL_DTYPE,
       });
-    } catch {
-      fullyCached = false;
-    }
+      if (cached) return host;
+    } catch {}
   }
-  send({
-    type: "model-phase",
-    phase: fullyCached ? "loading" : "connecting",
-    source: fullyCached ? "cache" : "remote",
-    modelId: activeModelId,
-  });
-  return pipeline("automatic-speech-recognition", model.repo, {
+  return null;
+}
+
+async function downloadPipeline(device: "wasm" | "webgpu") {
+  const model = getModelOption(activeModelId);
+  const options = {
     device,
     dtype: MODEL_DTYPE,
-    ...(fullyCached ? {} : { progress_callback: reportModelProgress }),
+    progress_callback: reportModelProgress,
+  };
+  env.remoteHost = PRIMARY_MODEL_HOST;
+  try {
+    return await pipeline("automatic-speech-recognition", model.repo, options);
+  } catch (error) {
+    if (!isMirrorTransportError(error)) throw error;
+    send({
+      type: "model-fallback",
+      message: "Domestic mirror unavailable · switching to the official model source",
+      modelId: activeModelId,
+    });
+    send({ type: "model-phase", phase: "connecting", source: "official", modelId: activeModelId });
+    env.remoteHost = FALLBACK_MODEL_HOST;
+    return pipeline("automatic-speech-recognition", model.repo, options);
+  }
+}
+
+async function loadPipeline(device: "wasm" | "webgpu") {
+  const model = getModelOption(activeModelId);
+  send({ type: "model-phase", phase: "checking", modelId: activeModelId });
+  const cachedHost = await findCachedModelHost(device);
+  send({
+    type: "model-phase",
+    phase: cachedHost ? "loading" : "connecting",
+    source: cachedHost ? "cache" : "hf-mirror",
+    modelId: activeModelId,
   });
+  if (!cachedHost) return downloadPipeline(device);
+  env.remoteHost = cachedHost;
+  return pipeline("automatic-speech-recognition", model.repo, { device, dtype: MODEL_DTYPE });
 }
 
 async function createWasmPipeline() {
