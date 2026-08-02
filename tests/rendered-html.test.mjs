@@ -51,6 +51,12 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.match(worker, /for \(const host of \[PRIMARY_MODEL_HOST, FALLBACK_MODEL_HOST\]\)/);
   assert.match(worker, /Domestic mirror unavailable/);
   assert.match(worker, /if \(!cachedHost\) return downloadPipeline\(device\)/);
+  assert.match(worker, /MIRROR_PROBE_TIMEOUT_MS = 3000/);
+  assert.match(worker, /new URL\(response\.url\)\.origin/);
+  assert.match(worker, /forceWasm = message\.forceWasm === true/);
+  assert.match(app, /MODEL_LOADING_WATCHDOG_MS = 45000/);
+  assert.match(app, /WebGPU initialization timed out/);
+  assert.match(app, /createWorker\(selectedModelRef\.current, true\)/);
   assert.match(app, /echoscribe-model-cache-v1:/);
   assert.match(app, /preferCached: hasCompletedModelCache/);
   assert.match(app, /Connecting to model server/);

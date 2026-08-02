@@ -173,6 +173,7 @@ const WAVEFORM = [
 ];
 
 const MODEL_CACHE_MARKER_PREFIX = "echoscribe-model-cache-v1:";
+const MODEL_LOADING_WATCHDOG_MS = 45000;
 
 function hasCompletedModelCache(modelId: ModelId): boolean {
   try {
@@ -303,6 +304,10 @@ export default function EchoScribeWeb() {
   const modelProgressRef = useRef(0);
   const selectedModelRef = useRef<ModelId>(DEFAULT_MODEL_ID);
   const workerModelRef = useRef<ModelId | null>(null);
+  const modelRuntimeRef = useRef("Detecting");
+  const modelReadyRef = useRef(false);
+  const modelLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingTranscriptionRef = useRef<{ file: File; resumeAt: number; modelId: ModelId } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const downloadSampleRef = useRef({ loaded: 0, measuredAt: 0, speed: 0, renderedAt: 0 });
   const copy = COPY[uiLanguage];
@@ -324,7 +329,15 @@ export default function EchoScribeWeb() {
     toastTimerRef.current = setTimeout(() => setToast(""), 2600);
   };
 
-  const createWorker = (modelId: ModelId = selectedModelRef.current) => {
+  const clearModelLoadWatchdog = () => {
+    if (modelLoadTimerRef.current) clearTimeout(modelLoadTimerRef.current);
+    modelLoadTimerRef.current = null;
+  };
+
+  const createWorker = (modelId: ModelId = selectedModelRef.current, forceWasm = false) => {
+    clearModelLoadWatchdog();
+    modelReadyRef.current = false;
+    modelRuntimeRef.current = "Detecting";
     setModelPhase("checking");
     setDownloadStats({ loaded: 0, total: 0, speed: 0, eta: null });
     downloadSampleRef.current = { loaded: 0, measuredAt: performance.now(), speed: 0, renderedAt: 0 };
@@ -332,7 +345,7 @@ export default function EchoScribeWeb() {
       type: "module",
     });
     worker.onmessage = (event) => workerHandlerRef.current(event);
-    worker.postMessage({ type: "load", modelId, preferCached: hasCompletedModelCache(modelId) });
+    worker.postMessage({ type: "load", modelId, preferCached: hasCompletedModelCache(modelId), forceWasm });
     workerRef.current = worker;
     workerModelRef.current = modelId;
     return worker;
@@ -346,6 +359,7 @@ export default function EchoScribeWeb() {
   };
 
   const stopCurrentJob = (reloadModel = true, modelId: ModelId = selectedModelRef.current) => {
+    clearModelLoadWatchdog();
     activeJobRef.current = "";
     resolveJobRef.current?.(false);
     resolveJobRef.current = null;
@@ -361,6 +375,27 @@ export default function EchoScribeWeb() {
     }
   };
 
+  const armModelLoadWatchdog = () => {
+    clearModelLoadWatchdog();
+    if (modelRuntimeRef.current !== "WebGPU") return;
+    const watchedWorker = workerRef.current;
+    modelLoadTimerRef.current = setTimeout(() => {
+      if (modelReadyRef.current || workerRef.current !== watchedWorker) return;
+      const pending = pendingTranscriptionRef.current;
+      activeJobRef.current = "";
+      resolveJobRef.current?.(false);
+      resolveJobRef.current = null;
+      watchedWorker?.terminate();
+      workerRef.current = null;
+      workerModelRef.current = null;
+      setModelReady(false);
+      setStatus(tr("WebGPU initialization timed out · continuing in compatibility mode…", "WebGPU 初始化超时 · 正在使用兼容模式继续…"));
+      showToast(tr("Graphics initialization was unresponsive. Switching to CPU mode.", "图形加速初始化无响应，正在切换到 CPU 模式。"));
+      createWorker(selectedModelRef.current, true);
+      if (pending) void beginTranscription(pending.file, pending.resumeAt, pending.modelId);
+    }, MODEL_LOADING_WATCHDOG_MS);
+  };
+
   workerHandlerRef.current = (event) => {
     const message = event.data;
     if (message.modelId && message.modelId !== selectedModelRef.current) return;
@@ -371,6 +406,8 @@ export default function EchoScribeWeb() {
       modelProgressRef.current = next;
       setModelProgress(next);
       setModelPhase(nextPhase);
+      if (nextPhase === "loading") armModelLoadWatchdog();
+      else clearModelLoadWatchdog();
       const loaded = Math.max(0, message.loaded ?? 0);
       const total = Math.max(0, message.total ?? 0);
       const now = performance.now();
@@ -406,6 +443,8 @@ export default function EchoScribeWeb() {
     if (message.type === "model-phase") {
       const nextPhase = message.phase ?? "checking";
       setModelPhase(nextPhase);
+      if (nextPhase === "loading") armModelLoadWatchdog();
+      else clearModelLoadWatchdog();
       if (nextPhase === "loading") {
         modelProgressRef.current = 1;
         setModelProgress(1);
@@ -422,10 +461,14 @@ export default function EchoScribeWeb() {
       return;
     }
     if (message.type === "model-runtime") {
+      clearModelLoadWatchdog();
+      modelRuntimeRef.current = message.backend ?? "CPU";
       setBackend(message.backend ?? "CPU");
       return;
     }
     if (message.type === "model-ready") {
+      clearModelLoadWatchdog();
+      modelReadyRef.current = true;
       markModelCacheComplete(selectedModelRef.current);
       modelProgressRef.current = 1;
       setModelProgress(1);
@@ -442,6 +485,7 @@ export default function EchoScribeWeb() {
       return;
     }
     if (message.type === "error" && !message.jobId) {
+      clearModelLoadWatchdog();
       setModelReady(false);
       setStatus(tr(`Model initialization failed · ${message.message ?? "Unknown error"}`, `模型初始化失败 · ${message.message ?? "未知错误"}`));
       showToast(tr("Model initialization failed. Reload to retry.", "模型初始化失败，请刷新页面后重试。"));
@@ -469,6 +513,7 @@ export default function EchoScribeWeb() {
       return;
     }
     if (message.type === "complete") {
+      pendingTranscriptionRef.current = null;
       const currentFile = activeFileRef.current;
       if (currentFile) {
         void writeTranscript(currentFile, entriesRef.current, message.processedUntil ?? duration, true, activeModel.id);
@@ -512,6 +557,7 @@ export default function EchoScribeWeb() {
       setStatus(initialUiLanguage === "zh" ? "请选择转写语言和性能档位" : "Choose a language and performance level to begin");
     }
     return () => {
+      clearModelLoadWatchdog();
       workerRef.current?.terminate();
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
@@ -527,6 +573,7 @@ export default function EchoScribeWeb() {
 
   const beginTranscription = async (selectedFile: File, resumeAt: number, modelId: ModelId = selectedModelRef.current): Promise<boolean> => {
     const model = getModelOption(modelId);
+    pendingTranscriptionRef.current = { file: selectedFile, resumeAt, modelId };
     setProcessing(true);
     setProgress(duration ? Math.min(resumeAt / duration, 0.98) : 0.01);
     setStatus(resumeAt ? tr(`Resuming from ${formatTime(resumeAt)} · ${model.shortLabel}`, `正在从 ${formatTime(resumeAt)} 继续 · ${displayModel(model.id)}`) : tr("Preparing local audio…", "正在准备本地音频…"));

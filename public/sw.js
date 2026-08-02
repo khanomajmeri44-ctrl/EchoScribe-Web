@@ -1,5 +1,5 @@
 const SHELL_CACHE_PREFIX = "echoscribe-shell-";
-const CACHE = `${SHELL_CACHE_PREFIX}v10`;
+const CACHE = `${SHELL_CACHE_PREFIX}v11`;
 const SHELL = ["./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
 
 const cacheResponse = (request, response) => {

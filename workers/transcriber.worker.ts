@@ -21,10 +21,12 @@ const SAMPLE_RATE = 16000;
 const CHUNK_SECONDS = 28;
 const PRIMARY_MODEL_HOST = "https://hf-mirror.com/";
 const FALLBACK_MODEL_HOST = "https://huggingface.co/";
+const MIRROR_PROBE_TIMEOUT_MS = 3000;
 let transcriberPromise: Promise<any> | null = null;
 let backend = "WASM";
 let activeModelId: ModelId = DEFAULT_MODEL_ID;
 let preferCachedModel = false;
+let forceWasm = false;
 
 const MODEL_DTYPE = { encoder_model: "q4", decoder_model_merged: "q4" } as const;
 
@@ -63,6 +65,25 @@ async function findCachedModelHost(device: "wasm" | "webgpu"): Promise<string | 
   return null;
 }
 
+async function selectDownloadHost(modelRepo: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MIRROR_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${PRIMARY_MODEL_HOST}${modelRepo}/resolve/main/config.json`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) return FALLBACK_MODEL_HOST;
+    return new URL(response.url).origin === new URL(PRIMARY_MODEL_HOST).origin
+      ? PRIMARY_MODEL_HOST
+      : FALLBACK_MODEL_HOST;
+  } catch {
+    return FALLBACK_MODEL_HOST;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function downloadPipeline(device: "wasm" | "webgpu") {
   const model = getModelOption(activeModelId);
   const options = {
@@ -70,7 +91,17 @@ async function downloadPipeline(device: "wasm" | "webgpu") {
     dtype: MODEL_DTYPE,
     progress_callback: reportModelProgress,
   };
-  env.remoteHost = PRIMARY_MODEL_HOST;
+  const selectedHost = await selectDownloadHost(model.repo);
+  env.remoteHost = selectedHost;
+  send({
+    type: "model-phase",
+    phase: "connecting",
+    source: selectedHost === PRIMARY_MODEL_HOST ? "hf-mirror" : "official",
+    modelId: activeModelId,
+  });
+  if (selectedHost === FALLBACK_MODEL_HOST) {
+    return pipeline("automatic-speech-recognition", model.repo, options);
+  }
   try {
     return await pipeline("automatic-speech-recognition", model.repo, options);
   } catch (error) {
@@ -112,7 +143,7 @@ async function createPipeline() {
   const isSafari = Boolean((env as any).isSafari?.());
   const safariVersion = Number(navigator.userAgent.match(/Version\/(\d+)/)?.[1] ?? 0);
   const safariSupportsStableWebGpu = !isSafari || safariVersion >= 26;
-  let hasWebGpu = "gpu" in navigator && safariSupportsStableWebGpu;
+  let hasWebGpu = !forceWasm && "gpu" in navigator && safariSupportsStableWebGpu;
   if ("gpu" in navigator && !safariSupportsStableWebGpu) {
     send({ type: "model-fallback", message: "Safari compatibility mode · using CPU", modelId: activeModelId });
   }
@@ -283,6 +314,7 @@ self.onmessage = async (event: MessageEvent) => {
     if (message.type === "load") {
       const requestedModel = getModelOption(message.modelId ?? DEFAULT_MODEL_ID);
       preferCachedModel = message.preferCached === true;
+      forceWasm = message.forceWasm === true;
       if (requestedModel.id !== activeModelId) {
         const previous = transcriberPromise ? await transcriberPromise.catch(() => null) : null;
         await previous?.dispose?.();

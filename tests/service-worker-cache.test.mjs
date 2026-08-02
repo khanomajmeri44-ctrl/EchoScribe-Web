@@ -13,7 +13,7 @@ test("service worker upgrades preserve model and unrelated caches", async () => 
     URL,
     location: { origin: "https://es.duo621.cn" },
     caches: {
-      keys: async () => ["echoscribe-shell-v9", "echoscribe-shell-v10", "transformers-cache", "user-cache"],
+      keys: async () => ["echoscribe-shell-v10", "echoscribe-shell-v11", "transformers-cache", "user-cache"],
       delete: async (key) => {
         deleted.push(key);
         return true;
@@ -31,5 +31,5 @@ test("service worker upgrades preserve model and unrelated caches", async () => 
   let activation;
   listeners.get("activate")({ waitUntil: (promise) => { activation = promise; } });
   await activation;
-  assert.deepEqual(deleted, ["echoscribe-shell-v9"]);
+  assert.deepEqual(deleted, ["echoscribe-shell-v10"]);
 });
