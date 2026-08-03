@@ -627,7 +627,7 @@ export default function EchoScribeWeb() {
         showToast(tr("Cached transcript loaded instantly", "已直接加载缓存字幕"));
         return true;
       }
-      const resumeAt = Math.max(cached.processedUntil, cached.entries[cached.entries.length - 1]?.end ?? 0);
+      const resumeAt = cached.entries[cached.entries.length - 1]?.end ?? 0;
       setStatus(tr(`Loaded ${cached.entries.length} saved passages · resuming`, `已加载 ${cached.entries.length} 条已保存字幕 · 正在继续`));
       return beginTranscription(selectedFile, resumeAt, modelId);
     }
@@ -695,7 +695,7 @@ export default function EchoScribeWeb() {
       return;
     }
     setProgress(0);
-    const resumeAt = cached ? Math.max(cached.processedUntil, cached.entries[cached.entries.length - 1]?.end ?? 0) : 0;
+    const resumeAt = cached ? cached.entries[cached.entries.length - 1]?.end ?? 0 : 0;
     showToast(tr(`Saved model choice · ${model.label}`, `已保存模型选择 · ${displayModel(model.id)}`));
     void beginTranscription(file, resumeAt, nextModelId);
   };

@@ -5,7 +5,7 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 
 test("ships the EchoScribe interface and lightweight English model", async () => {
-  const [page, app, worker, models, manifest, cache, html] = await Promise.all([
+  const [page, app, worker, models, manifest, cache, html, serviceWorker] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/EchoScribeWeb.tsx", root), "utf8"),
     readFile(new URL("workers/transcriber.worker.ts", root), "utf8"),
@@ -13,6 +13,7 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
     readFile(new URL("public/manifest.webmanifest", root), "utf8"),
     readFile(new URL("lib/transcript-cache.ts", root), "utf8"),
     readFile(new URL("index.html", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
   ]);
   assert.match(page, /EchoScribeWeb/);
   assert.match(app, /Transcript/);
@@ -68,6 +69,9 @@ test("ships the EchoScribe interface and lightweight English model", async () =>
   assert.doesNotMatch(app, /OfflineAudioContext|\.at\(/);
   assert.match(app, /\.aiff/);
   assert.match(cache, /catch \{/);
+  assert.doesNotMatch(app, /Math\.max\(cached\.processedUntil/);
+  assert.match(serviceWorker, /const copy = response\.clone\(\)/);
+  assert.match(serviceWorker, /const SHELL = \["\.\/"/);
   assert.match(html, /apple-touch-icon/);
   assert.doesNotMatch(worker, /language:\s*"english"|task:\s*"transcribe"|dtype:\s*"q8"/);
   assert.doesNotMatch(worker, /whisper-(small|medium|large)/);

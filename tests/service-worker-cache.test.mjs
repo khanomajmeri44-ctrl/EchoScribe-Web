@@ -7,13 +7,15 @@ const root = new URL("../", import.meta.url);
 
 test("service worker upgrades preserve model and unrelated caches", async () => {
   const source = await readFile(new URL("public/sw.js", root), "utf8");
+  assert.ok(source.indexOf("const copy = response.clone()") < source.indexOf("caches.open(CACHE).then"));
+  assert.match(source, /const SHELL = \["\.\/"/);
   const listeners = new Map();
   const deleted = [];
   const context = {
     URL,
     location: { origin: "https://es.duo621.cn" },
     caches: {
-      keys: async () => ["echoscribe-shell-v10", "echoscribe-shell-v11", "transformers-cache", "user-cache"],
+      keys: async () => ["echoscribe-shell-v11", "echoscribe-shell-v12", "transformers-cache", "user-cache"],
       delete: async (key) => {
         deleted.push(key);
         return true;
@@ -31,5 +33,5 @@ test("service worker upgrades preserve model and unrelated caches", async () => 
   let activation;
   listeners.get("activate")({ waitUntil: (promise) => { activation = promise; } });
   await activation;
-  assert.deepEqual(deleted, ["echoscribe-shell-v10"]);
+  assert.deepEqual(deleted, ["echoscribe-shell-v11"]);
 });

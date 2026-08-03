@@ -1,10 +1,11 @@
 const SHELL_CACHE_PREFIX = "echoscribe-shell-";
-const CACHE = `${SHELL_CACHE_PREFIX}v11`;
-const SHELL = ["./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
+const CACHE = `${SHELL_CACHE_PREFIX}v12`;
+const SHELL = ["./", "./manifest.webmanifest", "./echoscribe-icon.png", "./favicon.ico"];
 
 const cacheResponse = (request, response) => {
   if (!response?.ok) return;
-  caches.open(CACHE).then((cache) => cache.put(request, response.clone())).catch(() => undefined);
+  const copy = response.clone();
+  caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
 };
 
 self.addEventListener("install", (event) => {
